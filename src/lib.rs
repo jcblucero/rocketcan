@@ -1,4 +1,6 @@
-use plotters::coord::ranged1d;
+pub mod canlog_reader;
+
+use plotters::coord::ranged1d::{self, AsRangedCoord};
 use plotters::prelude::*;
 pub fn create_saw_signal(start: i32, end: i32) -> Vec<i32> {
     let mut ret = Vec::new();
@@ -26,7 +28,7 @@ A series
 * y-values
 */
 
-pub fn create_test(x_data: Vec<i32>, y_data: Vec<i32>) {
+pub fn create_i32_plot(x_data: Vec<i32>, y_data: Vec<i32>) {
     let x_range = x_data.iter().min().unwrap().clone()..x_data.iter().max().unwrap().clone();
     let y_range = y_data.iter().min().unwrap().clone()..y_data.iter().max().unwrap().clone();
     let root = BitMapBackend::new("my_plot.png", (500, 500)).into_drawing_area();
@@ -41,8 +43,11 @@ pub fn create_test(x_data: Vec<i32>, y_data: Vec<i32>) {
         .unwrap();
 
     let data_x_y: Vec<_> = x_data.iter().zip(y_data.iter()).collect();
+    let data_x_y = data_x_y.into_iter().map(|(x, y)| (*x, *y));
     let line_series = LineSeries::new(data_x_y, &RED);
     chart.draw_series(line_series).unwrap();
+
+    root.present().unwrap();
 }
 
 pub fn create_saw_plot() {
