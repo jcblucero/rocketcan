@@ -5,14 +5,14 @@ use std::io::{self, BufRead, BufReader};
 
 #[derive(Debug)]
 pub struct CanFrame {
+    // Timestamp: Time the data was received (seconds)
+    timestamp: f64,
     // CAN ID: 11-bit standard or 29-bit extended ID
     pub id: u32,
     // Data Length Code (DLC), 0 to 8 for CAN, 0 to 64 for CAN FD
     pub len: u8,
     // Payload data, can store up to 64 bytes for CAN FD, 8 bytes for standard CAN
     pub data: [u8; 64],
-    // A flag to differentiate between standard CAN and CAN FD
-    pub is_can_fd: bool,
 }
 /*
 (1436509052.249713) vcan0 044#2A366C2BBA
@@ -26,12 +26,38 @@ pub struct CanFrame {
 (1436509053.850870) vcan0 1A0#9C20407F96EA167B
 (1436509054.051025) vcan0 6DE#68FF147114D1
 */
+fn ascii_data_to_u8
 
-pub struct CanLogReader<T> {
+fn parse_candump_line(line: &str) -> CanFrame {
+    //Error in case parsing fails
+    let error_msg = format!("Error parsing line: {}", line);
+
+    let mut line_splits = line.split_whitespace();
+    //Get timestamp
+    let timestamp = line_splits.next().expect(&error_msg);
+    let timestamp = timestamp.parse::<f64>().expect(&error_msg);
+    // CAN interface name
+    let _interface_name = line_splits.next();
+    //ID
+    let id_and_data: Vec<_> = line_splits.next().expect(&error_msg).split('#').collect();
+    let id = u32::from_str_radix(id_and_data[0], 16).expect(&error_msg);
+    let data = 
+
+    return CanFrame {
+        timestamp: 0.0,
+        id: id,
+        len: 0,
+        data: [0; 64],
+    };
+}
+pub struct CanLogReader<T>
+where
+    T: Iterator,
+{
     iterable: T,
 }
 //Would have to implement trait for io::Lines
-pub trait CanLogRead {
+/*pub trait CanLogRead {
     fn to_canlog_reader(self) -> CanLogReader<Self>
     where
         Self: Sized,
@@ -40,7 +66,8 @@ pub trait CanLogRead {
     }
 }
 
-impl<T> CanLogRead for io::Lines<T> /*where T: IntoIterator<Item: std::borrow::Borrow<str>>*/ {}
+impl<T> CanLogRead for io::Lines<T> {}
+*/
 /*
 impl<T> CanLogReader<T>
 where
@@ -68,13 +95,14 @@ where
 
 impl<T> Iterator for CanLogReader<T>
 where
-    T: Iterator,
-    T::Item: std::borrow::Borrow<str>,
+    T: Iterator<Item = std::io::Result<String>>,
+    //T::Item: std::borrow::Borrow<str>,
 {
     type Item = CanFrame;
     fn next(&mut self) -> Option<Self::Item> {
+        let t = self.iterable.next();
         if let Some(line) = self.iterable.next() {
-            println!("{}", line.borrow());
+            println!("{}", line.unwrap());
         }
         return None;
     }
@@ -83,8 +111,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    /*fn test_from_string() {
+    /*#[test]
+    fn test_from_string() {
         let one_line_str = String::from("(1436509052.249713) vcan0 044#2A366C2BBA");
         let mut reader = CanLogReader::<Vec<&str>>::from_string(&one_line_str);
         println!("{:?}", reader.next());
@@ -93,6 +121,7 @@ mod tests {
     fn test_file() {
         println!("HELLO WORLD----");
     }
+    #[test]
     fn test_from_file() {
         let filename = "candump.log";
         let Ok(f) = File::open(filename) else {
@@ -101,7 +130,91 @@ mod tests {
         let buf_reader = BufReader::new(f);
         let t = buf_reader.lines();
         //let next = t.next();
-        let cr = t.to_canlog_reader();
-        cr.next();
+        //let mut cr = t.to_canlog_reader();
+        let mut cr = CanLogReader { iterable: t };
+        for can_frame in cr {
+            println!("{:?}", can_frame);
+        }
     }
 }
+
+/* Canframe::from example
+And parsing of data section
+use std::num::ParseIntError;
+
+#[derive(Debug)]
+struct CanFrame {
+    timestamp: f64,
+    interface: String,
+    can_id: u32,
+    data: Vec<u8>,
+}
+
+impl CanFrame {
+    fn from_candump_line(line: &str) -> Result<CanFrame, String> {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+
+        // Ensure that the line has the expected number of parts
+        if parts.len() < 4 {
+            return Err("Invalid line format".to_string());
+        }
+
+        // Parse the timestamp (f64)
+        let timestamp: f64 = parts[0]
+            .parse()
+            .map_err(|_| "Invalid timestamp format")?;
+
+        // Parse the interface (can0, can1, etc.)
+        let interface = parts[1].to_string();
+
+        // Parse the CAN ID (hexadecimal)
+        let can_id = u32::from_str_radix(parts[2], 16).map_err(|_| "Invalid CAN ID format")?;
+
+        // Parse the data length (in square brackets, e.g., [8])
+        let data_len_str = parts[3];
+        if !data_len_str.starts_with('[') || !data_len_str.ends_with(']') {
+            return Err("Invalid data length format".to_string());
+        }
+        let data_len: usize = data_len_str[1..data_len_str.len() - 1]
+            .parse()
+            .map_err(|_| "Invalid data length value")?;
+
+        // Ensure that the number of data bytes matches the data length
+        if parts.len() != 4 + 1 { // 4 parts plus the data itself
+            return Err("Mismatch between data length and actual data bytes".to_string());
+        }
+
+        // Parse the data: this is a continuous hexadecimal string
+        let data_str = parts[4];
+        if data_str.len() != data_len * 2 {
+            return Err("Mismatch between data length and actual data byte count".to_string());
+        }
+
+        let data = data_str
+            .as_bytes()
+            .chunks(2)
+            .map(|chunk| {
+                u8::from_str_radix(std::str::from_utf8(chunk).unwrap(), 16)
+                    .map_err(|e| format!("Invalid byte in data: {}", e))
+            })
+            .collect::<Result<Vec<u8>, String>>()?;
+
+        Ok(CanFrame {
+            timestamp,
+            interface,
+            can_id,
+            data,
+        })
+    }
+}
+
+fn main() {
+    // Example usage
+    let log_line = "1582359202.874678  can0  123   [8]  0102030405060708";
+    match CanFrame::from_candump_line(log_line) {
+        Ok(frame) => println!("{:?}", frame),
+        Err(e) => eprintln!("Error parsing line: {}", e),
+    }
+}
+
+ */
