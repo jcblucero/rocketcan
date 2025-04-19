@@ -9,5 +9,5 @@ fn main() {
     for i in 0..signal.len() as i32 {
         x_vals.push(i);
     }
-    rocketcan::create_i32_plot(x_vals, signal);
+    rocketcan::create_i32_plot(x_vals, signal, "saw_plot_from_main.png");
 }

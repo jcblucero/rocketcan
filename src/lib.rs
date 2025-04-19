@@ -1,4 +1,7 @@
 pub mod canlog_reader;
+pub mod can_decoder;
+
+use std::i8;
 
 use plotters::coord::ranged1d::{self, AsRangedCoord};
 use plotters::prelude::*;
@@ -28,10 +31,10 @@ A series
 * y-values
 */
 
-pub fn create_i32_plot(x_data: Vec<i32>, y_data: Vec<i32>) {
+pub fn create_i32_plot(x_data: Vec<i32>, y_data: Vec<i32>, plot_name: &str) {
     let x_range = x_data.iter().min().unwrap().clone()..x_data.iter().max().unwrap().clone();
     let y_range = y_data.iter().min().unwrap().clone()..y_data.iter().max().unwrap().clone();
-    let root = BitMapBackend::new("my_plot.png", (500, 500)).into_drawing_area();
+    let root = BitMapBackend::new(plot_name, (500, 500)).into_drawing_area();
     root.fill(&WHITE).unwrap();
 
     //Set up chart, rane, and label areas
@@ -46,6 +49,13 @@ pub fn create_i32_plot(x_data: Vec<i32>, y_data: Vec<i32>) {
     let data_x_y = data_x_y.into_iter().map(|(x, y)| (*x, *y));
     let line_series = LineSeries::new(data_x_y, &RED);
     chart.draw_series(line_series).unwrap();
+
+    chart
+        .configure_mesh()
+        //.x_labels(3)
+        //.y_labels(3)
+        .draw()
+        .unwrap();
 
     root.present().unwrap();
 }
@@ -128,7 +138,40 @@ pub fn create_demo_plot() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub struct SignalSeries<T> {
+    time: Vec<T>,
+    values: Vec<T>,
+}
+
+/// Create a time series that steps up by 1 each time step.
+/// Rolls over at uint8 max, 255, to 0.
+fn create_step_time_series(num_series: i32) -> SignalSeries<i32> {
+    let mut series = SignalSeries {
+        time: Vec::new(),
+        values: Vec::new(),
+    };
+    let max = u8::MAX;
+    let x_max = num_series * (max as i32);
+    let mut signal_val = 0;
+    for i in 0..x_max {
+        println!("i {i}");
+        series.time.push(i);
+        series.values.push(signal_val);
+        signal_val = (signal_val + 1) % 256;
+    }
+    return series;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_signal_plot() {
+        // Create fake signal data
+        //TODO: Update with real signal data
+        let series = create_step_time_series(4);
+        //Create and save plot
+        create_i32_plot(series.time, series.values, "test_signal_plot.png");
+    }
 }

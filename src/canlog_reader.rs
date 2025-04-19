@@ -26,28 +26,49 @@ pub struct CanFrame {
 (1436509053.850870) vcan0 1A0#9C20407F96EA167B
 (1436509054.051025) vcan0 6DE#68FF147114D1
 */
-fn ascii_data_to_u8
 
-fn parse_candump_line(line: &str) -> CanFrame {
+/// Turn ascii hex data into byte values
+pub fn ascii_hex_to_bytes(hex_str: &str) -> [u8; 64] {
+    let mut data_bytes = [0; 64];
+
+    let mut index = 0;
+    let mut i = 0;
+    while i < hex_str.len() {
+        data_bytes[index] = u8::from_str_radix(&hex_str[i..i + 2], 16)
+            .expect(&format!("failed to parse data bytes {}", hex_str));
+        index += 1;
+        i += 2;
+    }
+    return data_bytes;
+}
+
+/// Parse a line in candump format
+/// (1436509053.850870) vcan0 1A0#9C20407F96EA167B
+/// ```
+/// rocketcan::canlog_reader::parse_candump_line(" (1436509053.850870) vcan0 1A0#9C20407F96EA167B");
+/// ```
+pub fn parse_candump_line(line: &str) -> CanFrame {
     //Error in case parsing fails
     let error_msg = format!("Error parsing line: {}", line);
 
     let mut line_splits = line.split_whitespace();
     //Get timestamp
     let timestamp = line_splits.next().expect(&error_msg);
+    let timestamp = &timestamp[1..timestamp.len() - 1];
     let timestamp = timestamp.parse::<f64>().expect(&error_msg);
     // CAN interface name
     let _interface_name = line_splits.next();
     //ID
     let id_and_data: Vec<_> = line_splits.next().expect(&error_msg).split('#').collect();
     let id = u32::from_str_radix(id_and_data[0], 16).expect(&error_msg);
-    let data = 
-
+    let ascii_data = id_and_data[1];
+    let data = ascii_hex_to_bytes(id_and_data[1]);
+    let data_len = (ascii_data.len() / 2) as u8;
     return CanFrame {
-        timestamp: 0.0,
+        timestamp: timestamp,
         id: id,
-        len: 0,
-        data: [0; 64],
+        len: data_len,
+        data: data,
     };
 }
 pub struct CanLogReader<T>
@@ -100,9 +121,9 @@ where
 {
     type Item = CanFrame;
     fn next(&mut self) -> Option<Self::Item> {
-        let t = self.iterable.next();
         if let Some(line) = self.iterable.next() {
-            println!("{}", line.unwrap());
+            //println!("{}", line.unwrap());
+            return Some(parse_candump_line(&line.unwrap()));
         }
         return None;
     }
@@ -134,6 +155,14 @@ mod tests {
         let mut cr = CanLogReader { iterable: t };
         for can_frame in cr {
             println!("{:?}", can_frame);
+        }
+    }
+    #[test]
+    fn test_ascii_hex_data() {
+        let expected = vec![1u8, 2u8, 17u8, 18u8, 10u8, 11u8];
+        let result = ascii_hex_to_bytes("010211120A0B");
+        for i in 0..expected.len() {
+            assert_eq!(expected[i], result[i]);
         }
     }
 }
