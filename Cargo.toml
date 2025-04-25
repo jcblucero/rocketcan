@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 plotters = "0.3.7"
+rand = "0.9.1"
+can-dbc = "6.0.0"

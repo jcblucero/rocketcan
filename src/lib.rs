@@ -1,5 +1,5 @@
-pub mod canlog_reader;
 pub mod can_decoder;
+pub mod canlog_reader;
 
 use std::i8;
 
