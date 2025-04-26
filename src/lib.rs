@@ -1,6 +1,8 @@
 pub mod can_decoder;
 pub mod canlog_reader;
 
+pub use canlog_reader::CanFrame;
+
 use std::i8;
 
 use plotters::coord::ranged1d::{self, AsRangedCoord};

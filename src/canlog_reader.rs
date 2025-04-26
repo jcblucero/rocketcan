@@ -6,7 +6,7 @@ use std::io::{self, BufRead, BufReader};
 #[derive(Debug)]
 pub struct CanFrame {
     // Timestamp: Time the data was received (seconds)
-    timestamp: f64,
+    pub timestamp: f64,
     // CAN ID: 11-bit standard or 29-bit extended ID
     pub id: u32,
     // Data Length Code (DLC), 0 to 8 for CAN, 0 to 64 for CAN FD
@@ -129,6 +129,19 @@ where
     }
 }
 
+type LinesFileBufReader = std::io::Lines<BufReader<File>>;
+impl CanLogReader<LinesFileBufReader> {
+    pub fn from_file(filename: &str) -> CanLogReader<LinesFileBufReader> {
+        let Ok(f) = File::open(filename) else {
+            panic!("Unable to open file named {filename}");
+        };
+        let buf_reader = BufReader::new(f);
+        let lines = buf_reader.lines();
+        let reader = CanLogReader { iterable: lines };
+        return reader;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +166,7 @@ mod tests {
         //let next = t.next();
         //let mut cr = t.to_canlog_reader();
         let mut cr = CanLogReader { iterable: t };
+        let cr = CanLogReader::from_file(filename);
         for can_frame in cr {
             println!("{:?}", can_frame);
         }

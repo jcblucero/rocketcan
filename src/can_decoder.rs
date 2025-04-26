@@ -8,8 +8,8 @@ use std::io::{self, Read};
 use std::time::Instant;
 
 pub struct SignalsMap {
-    names: Vec<String>,
-    values: Vec<f32>,
+    pub names: Vec<String>,
+    pub values: Vec<f32>,
 }
 
 impl SignalsMap {
@@ -22,8 +22,24 @@ impl SignalsMap {
     }
 }
 
+/*
 pub fn can_decoder(can_msg: CanFrame, message_format: CanMessageFormat) -> SignalsMap {
     return SignalsMap::new(&["empty"], &[1.0]);
+}*/
+
+/// Extract the signal value from data of a CanFrame, based on specification of signal_spec
+pub fn get_signal(can_frame: CanFrame, signal_spec: can_dbc::Signal) -> f64 {
+    let v = signal_spec.value_type();
+    let start_bit = signal_spec.start_bit;
+
+    let start_byte = signal_spec.start_bit / 8;
+    let end_byte = (signal_spec.start_bit + signal_spec.signal_size) / 8;
+    //0XABED
+    let mut result: u64 = 0;
+    let offset = start_bit >> 4;
+    let mask = 0xFF;
+    result |= can_frame.data[start_byte as usize] >> offset;
+    result |= return 0.;
 }
 
 pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::DBC> {
