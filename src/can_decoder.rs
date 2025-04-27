@@ -77,6 +77,70 @@ pub fn get_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
     return 0.0;
 }
 
+/// Extract the signal value from data of a CanFrame, based on specification of signal_spec
+/// Read 1 byte at a time when decoding
+pub fn get_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
+    let v: &can_dbc::ValueType = signal_spec.value_type();
+    let start_bit = signal_spec.start_bit;
+    let mut byte_index = signal_spec.start_bit / 8;
+    let mut bit_index = (signal_spec.start_bit % 8) as i32;
+    let mut len = signal_spec.signal_size;
+    let mut result: u64 = 0;
+    let masks = [
+        0b1,
+        0b11,
+        0b111,
+        0b1111,
+        0b1_1111,
+        0b11_1111,
+        0b111_1111,
+        0b1111_1111,
+    ];
+    println!("{:?}", masks);
+    if signal_spec.byte_order() == &can_dbc::ByteOrder::BigEndian {
+        while len > 0 {
+            let bit_end = if (bit_index + 1 - len as i32) < 0 {
+                0
+            } else {
+                bit_index + 1 - len as i32
+            };
+            println!("Bit index {bit_index}, bit_end {bit_end}");
+
+            let incoming_bit_len = bit_index + 1 - bit_end;
+            let mask_index = incoming_bit_len - 1;
+            result = result << incoming_bit_len;
+            let byte_val = ((can_frame.data[byte_index as usize] >> bit_end)
+                & masks[mask_index as usize]) as u64;
+            result |= byte_val;
+            println!("incoming bit len {incoming_bit_len}, byte_val {byte_val}, len left {len}");
+            len -= incoming_bit_len as u64;
+            byte_index += 1;
+            bit_index = 7;
+        }
+    } else {
+        while len != 0 {
+            let bit_end = if (bit_index + (len as i32) - 1) >= 8 {
+                7
+            } else {
+                bit_index + (len as i32) - 1
+            };
+            println!("Bit index {bit_index}, bit_end {bit_end}");
+
+            let incoming_bit_len = bit_end - bit_index + 1;
+            let mask_index = incoming_bit_len - 1;
+            result = result << incoming_bit_len;
+            let byte_val = ((can_frame.data[byte_index as usize] >> bit_end)
+                & masks[mask_index as usize]) as u64;
+            result |= byte_val;
+            println!("incoming bit len {incoming_bit_len}, byte_val {byte_val}, len left {len}");
+            len -= incoming_bit_len as u64;
+            byte_index += 1;
+            bit_index = 0;
+        }
+    }
+    return result as f64;
+}
+
 pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::DBC> {
     let mut dbc_file = File::open(&dbc_path)?;
     let mut buffer = Vec::new();
@@ -225,8 +289,10 @@ mod tests {
             .find(|s| s.name() == "s3big")
             .expect("could not find signal");
         let value = get_signal(&frame, signal);
+        let value2 = get_signal_by_bytes(&frame, signal);
         println!("{:?}", frame);
         assert_eq!(value, 3.0);
+        assert_eq!(value2, 3.0);
         //s3 (little endian) = 0b011 -> 0b110
         let signal = msg
             .signals()
@@ -234,12 +300,14 @@ mod tests {
             .find(|s| s.name() == "s3")
             .expect("could not find signal");
         let value = get_signal(&frame, signal);
+        let value2 = get_signal_by_bytes(&frame, signal);
         assert_eq!(value, 6.0);
+        assert_eq!(value2, 6.0);
     }
     #[test]
     fn motohawk_decode_signal() {
-        //s3big = 0b011
-        let line = "(0.0) vcan0 6DE#007777446C667788";
+        //Temperature = 0b001110111011 = 955
+        let line = "(0.0) vcan0 1F0#0077733445566778";
         let frame = canlog_reader::parse_candump_line(line);
         let dbc = load_dbc("motohawk.dbc").unwrap();
         let msg = dbc
@@ -250,10 +318,12 @@ mod tests {
         let signal = msg
             .signals()
             .iter()
-            .find(|s| s.name() == "AverageRadius")
+            .find(|s| s.name() == "Temperature")
             .expect("could not find signal");
         let value = get_signal(&frame, signal);
+        let value2 = get_signal_by_bytes(&frame, signal);
         println!("{:?}", frame);
         assert_eq!(value, 955.0);
+        assert_eq!(value2, 955.0);
     }
 }
