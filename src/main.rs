@@ -22,7 +22,7 @@ fn main() {
             panic!("Error loading dbc: {err}");
         }
     };
-    let log_reader = canlog_reader::CanLogReader::from_file("candump.log");
+    /*let log_reader = canlog_reader::CanLogReader::from_file("candump.log");
     let mut timestamps = Vec::new();
     let mut data = Vec::new();
     let target_message = can_dbc

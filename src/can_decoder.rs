@@ -28,18 +28,53 @@ pub fn can_decoder(can_msg: CanFrame, message_format: CanMessageFormat) -> Signa
 }*/
 
 /// Extract the signal value from data of a CanFrame, based on specification of signal_spec
-pub fn get_signal(can_frame: CanFrame, signal_spec: can_dbc::Signal) -> f64 {
+pub fn get_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
     let v = signal_spec.value_type();
     let start_bit = signal_spec.start_bit;
+    let mut byte_index = signal_spec.start_bit / 8;
+    let mut bit_index = (signal_spec.start_bit % 8) as i32;
+    let mut len = signal_spec.signal_size;
+    let mut result: u64 = 0;
+    if signal_spec.byte_order() == &can_dbc::ByteOrder::BigEndian {
+        while len != 0 {
+            println!("byte index {byte_index}");
+            while len != 0 && bit_index >= 0 {
+                len -= 1;
+                result = result << 1;
+                let bit_val = ((can_frame.data[byte_index as usize] >> bit_index) & 0x01) as u64;
+                result |= bit_val;
+                println!("bit_index {bit_index}, bit_val {bit_val}, result {result}");
+                bit_index -= 1;
+            }
+            byte_index += 1;
+            bit_index = 7;
+        }
+    } else {
+        while len != 0 {
+            println!("byte index {byte_index}");
+            while len != 0 && bit_index <= 7 {
+                len -= 1;
+                result = result << 1;
+                let bit_val = ((can_frame.data[byte_index as usize] >> bit_index) & 0x01) as u64;
+                result |= bit_val;
+                println!("bit_index {bit_index}, bit_val {bit_val}, result {result}");
+                bit_index += 1;
+            }
+            byte_index += 1;
+            bit_index = 0;
+        }
+    }
+    return result as f64;
 
-    let start_byte = signal_spec.start_bit / 8;
+    /*let start_byte = signal_spec.start_bit / 8;
     let end_byte = (signal_spec.start_bit + signal_spec.signal_size) / 8;
     //0XABED
     let mut result: u64 = 0;
     let offset = start_bit >> 4;
     let mask = 0xFF;
     result |= can_frame.data[start_byte as usize] >> offset;
-    result |= return 0.;
+    result |= return 0.;*/
+    return 0.0;
 }
 
 pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::DBC> {
@@ -82,6 +117,10 @@ const SIGNAL_VALUES: [f32; 10] = [
 
 #[cfg(test)]
 mod tests {
+    use can_dbc::Message;
+
+    use crate::canlog_reader;
+
     use super::*;
     #[test]
     fn benchmark_hashmap() {
@@ -156,5 +195,45 @@ mod tests {
         let section_2_time = now_2.elapsed().as_micros();
         println!("Vector Section 2\n{:?}", arr);
         println!("------Vector Time 2: {}------", section_2_time);
+    }
+    #[test]
+    fn test_load_dbc() {
+        let dbc = load_dbc("motohawk.dbc").unwrap();
+        let dbc = load_dbc("signed.dbc").unwrap();
+        //let dbc = load_dbc("abs.dbc").unwrap();
+        for message in dbc.messages() {
+            for s in message.signals() {
+                println!("{:?}", s);
+            }
+            //println!("{:?}", message);
+        }
+    }
+    #[test]
+    fn signal_decode_signed_dbc() {
+        //s3big = 0b011
+        let line = "(0.0) vcan0 6DE#112233446C667788";
+        let frame = canlog_reader::parse_candump_line(line);
+        let dbc = load_dbc("signed.dbc").unwrap();
+        let msg = dbc
+            .messages()
+            .iter()
+            .find(|m| m.message_name() == "Message378910")
+            .expect("did not find message");
+        let signal = msg
+            .signals()
+            .iter()
+            .find(|s| s.name() == "s3big")
+            .expect("could not find signal");
+        let value = get_signal(&frame, signal);
+        println!("{:?}", frame);
+        assert_eq!(value, 3.0);
+
+        let signal = msg
+            .signals()
+            .iter()
+            .find(|s| s.name() == "s3")
+            .expect("could not find signal");
+        let value = get_signal(&frame, signal);
+        assert_eq!(value, 6.0);
     }
 }
