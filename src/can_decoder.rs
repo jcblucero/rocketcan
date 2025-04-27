@@ -239,21 +239,21 @@ mod tests {
     #[test]
     fn motohawk_decode_signal() {
         //s3big = 0b011
-        let line = "(0.0) vcan0 6DE#112233446C667788";
+        let line = "(0.0) vcan0 6DE#007777446C667788";
         let frame = canlog_reader::parse_candump_line(line);
-        let dbc = load_dbc("signed.dbc").unwrap();
+        let dbc = load_dbc("motohawk.dbc").unwrap();
         let msg = dbc
             .messages()
             .iter()
-            .find(|m| m.message_name() == "Message378910")
+            .find(|m| m.message_name() == "ExampleMessage")
             .expect("did not find message");
         let signal = msg
             .signals()
             .iter()
-            .find(|s| s.name() == "s3big")
+            .find(|s| s.name() == "AverageRadius")
             .expect("could not find signal");
         let value = get_signal(&frame, signal);
         println!("{:?}", frame);
-        assert_eq!(value, 3.0);
+        assert_eq!(value, 955.0);
     }
 }
