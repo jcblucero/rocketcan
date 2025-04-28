@@ -37,13 +37,13 @@ pub fn get_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
     let mut result: u64 = 0;
     if signal_spec.byte_order() == &can_dbc::ByteOrder::BigEndian {
         while len != 0 {
-            println!("byte index {byte_index}");
+            //println!("byte index {byte_index}");
             while len != 0 && bit_index >= 0 {
                 len -= 1;
                 result = result << 1;
                 let bit_val = ((can_frame.data[byte_index as usize] >> bit_index) & 0x01) as u64;
                 result |= bit_val;
-                println!("bit_index {bit_index}, bit_val {bit_val}, result {result}");
+                //println!("bit_index {bit_index}, bit_val {bit_val}, result {result}");
                 bit_index -= 1;
             }
             byte_index += 1;
@@ -51,13 +51,13 @@ pub fn get_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
         }
     } else {
         while len != 0 {
-            println!("byte index {byte_index}");
+            //println!("byte index {byte_index}");
             while len != 0 && bit_index <= 7 {
                 len -= 1;
                 result = result << 1;
                 let bit_val = ((can_frame.data[byte_index as usize] >> bit_index) & 0x01) as u64;
                 result |= bit_val;
-                println!("bit_index {bit_index}, bit_val {bit_val}, result {result}");
+                //println!("bit_index {bit_index}, bit_val {bit_val}, result {result}");
                 bit_index += 1;
             }
             byte_index += 1;
@@ -96,7 +96,7 @@ pub fn get_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) 
         0b111_1111,
         0b1111_1111,
     ];
-    println!("{:?}", masks);
+    //println!("{:?}", masks);
     if signal_spec.byte_order() == &can_dbc::ByteOrder::BigEndian {
         while len > 0 {
             let bit_end = if (bit_index + 1 - len as i32) < 0 {
@@ -104,7 +104,7 @@ pub fn get_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) 
             } else {
                 bit_index + 1 - len as i32
             };
-            println!("Bit index {bit_index}, bit_end {bit_end}");
+            //println!("Bit index {bit_index}, bit_end {bit_end}");
 
             let incoming_bit_len = bit_index + 1 - bit_end;
             let mask_index = incoming_bit_len - 1;
@@ -112,7 +112,7 @@ pub fn get_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) 
             let byte_val = ((can_frame.data[byte_index as usize] >> bit_end)
                 & masks[mask_index as usize]) as u64;
             result |= byte_val;
-            println!("incoming bit len {incoming_bit_len}, byte_val {byte_val}, len left {len}");
+            //println!("incoming bit len {incoming_bit_len}, byte_val {byte_val}, len left {len}");
             len -= incoming_bit_len as u64;
             byte_index += 1;
             bit_index = 7;
@@ -124,7 +124,7 @@ pub fn get_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) 
             } else {
                 bit_index + (len as i32) - 1
             };
-            println!("Bit index {bit_index}, bit_end {bit_end}");
+            //println!("Bit index {bit_index}, bit_end {bit_end}");
 
             let incoming_bit_len = bit_end - bit_index + 1;
             let mask_index = incoming_bit_len - 1;
@@ -132,7 +132,7 @@ pub fn get_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) 
             let byte_val = ((can_frame.data[byte_index as usize] >> bit_end)
                 & masks[mask_index as usize]) as u64;
             result |= byte_val;
-            println!("incoming bit len {incoming_bit_len}, byte_val {byte_val}, len left {len}");
+            //println!("incoming bit len {incoming_bit_len}, byte_val {byte_val}, len left {len}");
             len -= incoming_bit_len as u64;
             byte_index += 1;
             bit_index = 0;
@@ -299,10 +299,59 @@ mod tests {
             .iter()
             .find(|s| s.name() == "s3")
             .expect("could not find signal");
-        let value = get_signal(&frame, signal);
-        let value2 = get_signal_by_bytes(&frame, signal);
-        assert_eq!(value, 6.0);
-        assert_eq!(value2, 6.0);
+        let t1 = Instant::now();
+        for i in 0..1000 {
+            let value = get_signal(&frame, signal);
+            assert_eq!(value, 6.0);
+        }
+        let bit_shift_time = t1.elapsed().as_micros();
+
+        let t2 = Instant::now();
+        for i in 0..1000 {
+            let value2 = get_signal_by_bytes(&frame, signal);
+            assert_eq!(value2, 6.0);
+        }
+        let byte_shift_time = t2.elapsed().as_micros();
+        println!("Bit shifting time: {bit_shift_time}");
+        println!("Byte shifting time: {byte_shift_time}");
+
+        //assert_eq!(value, 6.0);
+        //assert_eq!(value2, 6.0);
+
+        //s64
+        let msg = dbc
+            .messages()
+            .iter()
+            .find(|m| m.message_name() == "Message64")
+            .expect("did not find message");
+        let signal = msg
+            .signals()
+            .iter()
+            .find(|s| s.name() == "s64")
+            .expect("could not find signal");
+        let t3 = Instant::now();
+        let mut running_sum = 0.0;
+        //Decimal: 9833440926573470000
+        for i in 0..1 {
+            let value2 = get_signal_by_bytes(&frame, signal);
+            println!("get signal by bytes value {value2}");
+            running_sum += value2
+            //assert_eq!(value2, 6.0);
+        }
+        println!("running sum {running_sum}");
+        let byte_shift_time = t3.elapsed().as_micros();
+
+        let t4 = Instant::now();
+        for i in 0..1 {
+            let value = get_signal(&frame, signal);
+            println!("get signal value {value}");
+            running_sum += value;
+            //assert_eq!(value, 6.0);
+        }
+        let bit_shift_time = t4.elapsed().as_micros();
+        println!("running sum 2 {running_sum}");
+        println!("Bit shifting time: {bit_shift_time}");
+        println!("Byte shifting time: {byte_shift_time}");
     }
     #[test]
     fn motohawk_decode_signal() {
@@ -320,10 +369,24 @@ mod tests {
             .iter()
             .find(|s| s.name() == "Temperature")
             .expect("could not find signal");
-        let value = get_signal(&frame, signal);
-        let value2 = get_signal_by_bytes(&frame, signal);
+
+        let time2 = Instant::now();
+        for i in 0..1000 {
+            let value2 = get_signal_by_bytes(&frame, signal);
+            assert_eq!(value2, 955.0);
+        }
+        let byte_shifting_time = time2.elapsed().as_micros();
+
+        let time = Instant::now();
+        for i in 0..1000 {
+            let value = get_signal(&frame, signal);
+            assert_eq!(value, 955.0);
+        }
+        let bit_shifting_time = time.elapsed().as_micros();
+        println!("Bit shifting time: {bit_shifting_time}");
+        println!("Byte shifting time: {byte_shifting_time}");
         println!("{:?}", frame);
-        assert_eq!(value, 955.0);
-        assert_eq!(value2, 955.0);
+        //assert_eq!(value, 955.0);
+        //assert_eq!(value2, 955.0);
     }
 }
