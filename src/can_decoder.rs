@@ -52,14 +52,20 @@ pub fn get_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
     } else {
         while len != 0 {
             //println!("byte index {byte_index}");
+            //bit_index = 7 - bit_index;
+            //let mut i = 0;
+            //result = result << 8;
             while len != 0 && bit_index <= 7 {
                 len -= 1;
-                result = result << 1;
+                result = result >> 1;
                 let bit_val = ((can_frame.data[byte_index as usize] >> bit_index) & 0x01) as u64;
-                result |= bit_val;
+                result |= bit_val << (signal_spec.signal_size - 1);
+                //result |= bit_val << i;
+                //i += 1;
                 //println!("bit_index {bit_index}, bit_val {bit_val}, result {result}");
                 bit_index += 1;
             }
+
             byte_index += 1;
             bit_index = 0;
         }
@@ -128,10 +134,10 @@ pub fn get_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) 
 
             let incoming_bit_len = bit_end - bit_index + 1;
             let mask_index = incoming_bit_len - 1;
-            result = result << incoming_bit_len;
-            let byte_val = ((can_frame.data[byte_index as usize] >> bit_end)
+            //result = result << incoming_bit_len;
+            let byte_val = ((can_frame.data[byte_index as usize] >> bit_index)
                 & masks[mask_index as usize]) as u64;
-            result |= byte_val;
+            result |= byte_val << (signal_spec.signal_size - len);
             //println!("incoming bit len {incoming_bit_len}, byte_val {byte_val}, len left {len}");
             len -= incoming_bit_len as u64;
             byte_index += 1;
@@ -275,7 +281,7 @@ mod tests {
     #[test]
     fn signal_decode_signed_dbc() {
         //s3big = 0b011
-        let line = "(0.0) vcan0 6DE#112233446C667788";
+        let line = "(0.0) vcan0 00A#112233446C667788";
         let frame = canlog_reader::parse_candump_line(line);
         let dbc = load_dbc("signed.dbc").unwrap();
         let msg = dbc
@@ -302,14 +308,15 @@ mod tests {
         let t1 = Instant::now();
         for i in 0..1000 {
             let value = get_signal(&frame, signal);
-            assert_eq!(value, 6.0);
+            assert_eq!(value, 3.0);
         }
         let bit_shift_time = t1.elapsed().as_micros();
 
         let t2 = Instant::now();
         for i in 0..1000 {
             let value2 = get_signal_by_bytes(&frame, signal);
-            assert_eq!(value2, 6.0);
+            //assert_eq!(value2, 6.0);
+            assert_eq!(value2, 3.0);
         }
         let byte_shift_time = t2.elapsed().as_micros();
         println!("Bit shifting time: {bit_shift_time}");
@@ -332,21 +339,21 @@ mod tests {
         let t3 = Instant::now();
         let mut running_sum = 0.0;
         //Decimal: 9833440926573470000
-        for i in 0..1 {
+        for i in 0..10000 {
             let value2 = get_signal_by_bytes(&frame, signal);
             println!("get signal by bytes value {value2}");
-            running_sum += value2
-            //assert_eq!(value2, 6.0);
+            running_sum += value2;
+            assert_eq!(value2, 9833440926573470000.0);
         }
         println!("running sum {running_sum}");
         let byte_shift_time = t3.elapsed().as_micros();
 
         let t4 = Instant::now();
-        for i in 0..1 {
+        for i in 0..10000 {
             let value = get_signal(&frame, signal);
             println!("get signal value {value}");
             running_sum += value;
-            //assert_eq!(value, 6.0);
+            assert_eq!(value, 9833440926573470000.0);
         }
         let bit_shift_time = t4.elapsed().as_micros();
         println!("running sum 2 {running_sum}");
