@@ -29,6 +29,11 @@ pub fn can_decoder(can_msg: CanFrame, message_format: CanMessageFormat) -> Signa
 
 /// Extract the signal value from data of a CanFrame, based on specification of signal_spec
 pub fn get_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
+    /*println!(
+        "--SIGNAL NAME: {:?}, SIGNAL UNIT {:?}---",
+        signal_spec.name(),
+        signal_spec.unit()
+    );*/
     let v = signal_spec.value_type();
     let start_bit = signal_spec.start_bit;
     let mut byte_index = signal_spec.start_bit / 8;
@@ -70,17 +75,20 @@ pub fn get_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
             bit_index = 0;
         }
     }
-    return result as f64;
+    //return result as f64;
 
-    /*let start_byte = signal_spec.start_bit / 8;
-    let end_byte = (signal_spec.start_bit + signal_spec.signal_size) / 8;
-    //0XABED
-    let mut result: u64 = 0;
-    let offset = start_bit >> 4;
-    let mask = 0xFF;
-    result |= can_frame.data[start_byte as usize] >> offset;
-    result |= return 0.;*/
-    return 0.0;
+    //conversion from raw_signal to real value
+    let signal_value = match signal_spec.value_type() {
+        can_dbc::ValueType::Signed => {
+            let shift_len = 64 - signal_spec.signal_size;
+            //Sign extend operation: shift left to place MSB into top of u64, shift right to get sign extension.
+            let sign_extended = ((result as i64) << shift_len) >> shift_len;
+            println!("shift len {shift_len} sign_extended {sign_extended}");
+            sign_extended as f64
+        }
+        can_dbc::ValueType::Unsigned => result as f64,
+    };
+    return signal_value * signal_spec.factor() + signal_spec.offset();
 }
 
 /// Extract the signal value from data of a CanFrame, based on specification of signal_spec
@@ -282,6 +290,7 @@ mod tests {
     fn signal_decode_signed_dbc() {
         //s3big = 0b011
         let line = "(0.0) vcan0 00A#112233446C667788";
+        let line = "(0.0) vcan0 00A#11223344FF667788";
         let frame = canlog_reader::parse_candump_line(line);
         let dbc = load_dbc("signed.dbc").unwrap();
         let msg = dbc
@@ -397,3 +406,41 @@ mod tests {
         //assert_eq!(value2, 955.0);
     }
 }
+
+/*
+jacob@jacob-ubuntu:~/rust_projects/rocketcan$ echo "(0.0) vcan0 1F0#0077733445566778" | python3 -m cantools decode motohawk.dbc
+(0.0) vcan0 1F0#0077733445566778 ::
+ExampleMessage(
+    Enable: Disabled,
+    AverageRadius: 0.0 m,
+    Temperature: 259.55 degK
+)
+jacob@jacob-ubuntu:~/rust_projects/rocketcan$ echo "(0.0) vcan0 002#11223344FF667788" | python3 -m cantools decode signed.dbc
+(0.0) vcan0 002#11223344FF667788 ::
+Message64(
+    s64: -8613302515775888879
+)
+jacob@jacob-ubuntu:~/rust_projects/rocketcan$ echo "(0.0) vcan0 003#8000000000000000" | python3 -m cantools decode signed.dbc
+(0.0) vcan0 003#8000000000000000 ::
+Message64big(
+    s64big: -9223372036854775808
+)
+jacob@jacob-ubuntu:~/rust_projects/rocketcan$ echo "(0.0) vcan0 1F0#0077733445566778" | python3 -m cantools decode motohawk.dbc
+(0.0) vcan0 1F0#0077733445566778 ::
+ExampleMessage(
+    Enable: Disabled,
+    AverageRadius: 0.0 m,
+    Temperature: 259.55 degK
+)
+jacob@jacob-ubuntu:~/rust_projects/rocketcan$ echo "(0.0) vcan0 00A#11223344FF667788" | python3 -m cantools decode signed.dbc
+(0.0) vcan0 00A#11223344FF667788 ::
+Message378910(
+    s7: 8,
+    s8big: -111,
+    s9: 25,
+    s8: -47,
+    s3big: -1,
+    s3: -1,
+    s10big: 239,
+    s
+*/
