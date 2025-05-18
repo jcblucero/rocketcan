@@ -28,7 +28,7 @@ pub fn can_decoder(can_msg: CanFrame, message_format: CanMessageFormat) -> Signa
 }*/
 
 /// Extract the signal value from data of a CanFrame, based on specification of signal_spec
-pub fn get_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
+pub fn decode_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
     /*println!(
         "--SIGNAL NAME: {:?}, SIGNAL UNIT {:?}---",
         signal_spec.name(),
@@ -78,22 +78,30 @@ pub fn get_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
     //return result as f64;
 
     //conversion from raw_signal to real value
-    let signal_value = match signal_spec.value_type() {
+    compute_signal_value(result, signal_spec)
+}
+
+/// Compute the final value of a CAN signal using the formula
+/// final_value = decoded_signal_value * factor + offset
+fn compute_signal_value(decoded_value: u64, signal_spec: &can_dbc::Signal) -> f64 {
+    //conversion from raw_signal to real value
+    let final_value = match signal_spec.value_type() {
+        //Sign extend if the value is signed
         can_dbc::ValueType::Signed => {
             let shift_len = 64 - signal_spec.signal_size;
             //Sign extend operation: shift left to place MSB into top of u64, shift right to get sign extension.
-            let sign_extended = ((result as i64) << shift_len) >> shift_len;
+            let sign_extended = ((decoded_value as i64) << shift_len) >> shift_len;
             println!("shift len {shift_len} sign_extended {sign_extended}");
             sign_extended as f64
         }
-        can_dbc::ValueType::Unsigned => result as f64,
+        can_dbc::ValueType::Unsigned => decoded_value as f64,
     };
-    return signal_value * signal_spec.factor() + signal_spec.offset();
+    return final_value * signal_spec.factor() + signal_spec.offset();
 }
 
 /// Extract the signal value from data of a CanFrame, based on specification of signal_spec
 /// Read 1 byte at a time when decoding
-pub fn get_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
+pub fn decode_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
     let v: &can_dbc::ValueType = signal_spec.value_type();
     let start_bit = signal_spec.start_bit;
     let mut byte_index = signal_spec.start_bit / 8;
@@ -152,7 +160,8 @@ pub fn get_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) 
             bit_index = 0;
         }
     }
-    return result as f64;
+    //return result as f64;
+    compute_signal_value(result, signal_spec)
 }
 
 pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::DBC> {
@@ -164,6 +173,7 @@ pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::DBC> {
         Ok(can_dbc) => Ok(can_dbc),
         Err(e) => io::Error(e.kind()),
     }*/
+
     Ok(can_dbc::DBC::from_slice(&buffer).unwrap())
 }
 
@@ -303,8 +313,8 @@ mod tests {
             .iter()
             .find(|s| s.name() == "s3big")
             .expect("could not find signal");
-        let value = get_signal(&frame, signal);
-        let value2 = get_signal_by_bytes(&frame, signal);
+        let value = decode_signal(&frame, signal);
+        let value2 = decode_signal_by_bytes(&frame, signal);
         println!("{:?}", frame);
         assert_eq!(value, 3.0);
         assert_eq!(value2, 3.0);
@@ -316,14 +326,14 @@ mod tests {
             .expect("could not find signal");
         let t1 = Instant::now();
         for i in 0..1000 {
-            let value = get_signal(&frame, signal);
+            let value = decode_signal(&frame, signal);
             assert_eq!(value, 3.0);
         }
         let bit_shift_time = t1.elapsed().as_micros();
 
         let t2 = Instant::now();
         for i in 0..1000 {
-            let value2 = get_signal_by_bytes(&frame, signal);
+            let value2 = decode_signal_by_bytes(&frame, signal);
             //assert_eq!(value2, 6.0);
             assert_eq!(value2, 3.0);
         }
@@ -349,7 +359,7 @@ mod tests {
         let mut running_sum = 0.0;
         //Decimal: 9833440926573470000
         for i in 0..10000 {
-            let value2 = get_signal_by_bytes(&frame, signal);
+            let value2 = decode_signal_by_bytes(&frame, signal);
             println!("get signal by bytes value {value2}");
             running_sum += value2;
             assert_eq!(value2, 9833440926573470000.0);
@@ -359,7 +369,7 @@ mod tests {
 
         let t4 = Instant::now();
         for i in 0..10000 {
-            let value = get_signal(&frame, signal);
+            let value = decode_signal(&frame, signal);
             println!("get signal value {value}");
             running_sum += value;
             assert_eq!(value, 9833440926573470000.0);
@@ -372,7 +382,25 @@ mod tests {
     #[test]
     fn motohawk_decode_signal() {
         //Temperature = 0b001110111011 = 955
-        let line = "(0.0) vcan0 1F0#0077733445566778";
+        /* golden sample using cantools
+        echo "(0.0) vcan0 1F0#A5B6D90000000000" | python3 -m cantools decode motohawk.dbc
+        (0.0) vcan0 1F0#A5B6D90000000000 ::
+        ExampleMessage(
+            Enable: Enabled,
+            AverageRadius: 1.8 m,
+            Temperature: 244.14 degK
+        )
+         */
+        let line = "(0.0) vcan0 1F0#A5B6D90000000000";
+        /*let expected_signals = HashMap::from([
+            ("Enable", 1.0),
+            ("AverageRadius", 1.8),
+            ("Temperature", 244.14),
+        ]);*/
+        let expected_enable = true;
+        let expected_average_radius = 1.8;
+        let expected_temperature = 244.14;
+
         let frame = canlog_reader::parse_candump_line(line);
         let dbc = load_dbc("motohawk.dbc").unwrap();
         let msg = dbc
@@ -388,15 +416,15 @@ mod tests {
 
         let time2 = Instant::now();
         for i in 0..1000 {
-            let value2 = get_signal_by_bytes(&frame, signal);
-            assert_eq!(value2, 955.0);
+            let value2 = decode_signal_by_bytes(&frame, signal);
+            assert_eq!(value2, expected_temperature);
         }
         let byte_shifting_time = time2.elapsed().as_micros();
 
         let time = Instant::now();
         for i in 0..1000 {
-            let value = get_signal(&frame, signal);
-            assert_eq!(value, 955.0);
+            let value = decode_signal(&frame, signal);
+            assert_eq!(value, expected_temperature);
         }
         let bit_shifting_time = time.elapsed().as_micros();
         println!("Bit shifting time: {bit_shifting_time}");
@@ -442,5 +470,5 @@ Message378910(
     s3big: -1,
     s3: -1,
     s10big: 239,
-    s
+    s7big: 8
 */
