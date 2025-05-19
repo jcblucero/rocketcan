@@ -91,7 +91,7 @@ fn compute_signal_value(decoded_value: u64, signal_spec: &can_dbc::Signal) -> f6
             let shift_len = 64 - signal_spec.signal_size;
             //Sign extend operation: shift left to place MSB into top of u64, shift right to get sign extension.
             let sign_extended = ((decoded_value as i64) << shift_len) >> shift_len;
-            println!("shift len {shift_len} sign_extended {sign_extended}");
+            //println!("shift len {shift_len} sign_extended {sign_extended}");
             sign_extended as f64
         }
         can_dbc::ValueType::Unsigned => decoded_value as f64,
@@ -299,7 +299,23 @@ mod tests {
     #[test]
     fn signal_decode_signed_dbc() {
         //s3big = 0b011
-        let line = "(0.0) vcan0 00A#112233446C667788";
+        /*
+           Golden Sample using Cantools
+           echo "(0.0) vcan0 00A#11223344FF667788" | python3 -m cantools decode signed.dbc
+           (0.0) vcan0 00A#11223344FF667788 ::
+           Message378910(
+               s7: 8,
+               s8big: -111,
+               s9: 25,
+               s8: -47,
+               s3big: -1,
+               s3: -1,
+               s10big: 239,
+               s7big: 8
+           )
+        */
+        let s3big_expected = -1.0;
+        let s3_expected = -1.0;
         let line = "(0.0) vcan0 00A#11223344FF667788";
         let frame = canlog_reader::parse_candump_line(line);
         let dbc = load_dbc("signed.dbc").unwrap();
@@ -313,11 +329,12 @@ mod tests {
             .iter()
             .find(|s| s.name() == "s3big")
             .expect("could not find signal");
+
         let value = decode_signal(&frame, signal);
         let value2 = decode_signal_by_bytes(&frame, signal);
         println!("{:?}", frame);
-        assert_eq!(value, 3.0);
-        assert_eq!(value2, 3.0);
+        assert_eq!(value, s3big_expected);
+        assert_eq!(value2, s3big_expected);
         //s3 (little endian) = 0b011 -> 0b110
         let signal = msg
             .signals()
@@ -327,7 +344,7 @@ mod tests {
         let t1 = Instant::now();
         for i in 0..1000 {
             let value = decode_signal(&frame, signal);
-            assert_eq!(value, 3.0);
+            assert_eq!(value, s3_expected);
         }
         let bit_shift_time = t1.elapsed().as_micros();
 
@@ -335,7 +352,7 @@ mod tests {
         for i in 0..1000 {
             let value2 = decode_signal_by_bytes(&frame, signal);
             //assert_eq!(value2, 6.0);
-            assert_eq!(value2, 3.0);
+            assert_eq!(value2, s3_expected);
         }
         let byte_shift_time = t2.elapsed().as_micros();
         println!("Bit shifting time: {bit_shift_time}");
@@ -345,6 +362,13 @@ mod tests {
         //assert_eq!(value2, 6.0);
 
         //s64
+        /*
+        echo "(0.0) vcan0 002#11223344FF667788" | python3 -m cantools decode signed.dbc
+        (0.0) vcan0 002#11223344FF667788 ::
+        Message64(
+            s64: -8613302515775888879
+        )*/
+        let s64_expected = -8613302515775888879.0;
         let msg = dbc
             .messages()
             .iter()
@@ -357,12 +381,11 @@ mod tests {
             .expect("could not find signal");
         let t3 = Instant::now();
         let mut running_sum = 0.0;
-        //Decimal: 9833440926573470000
         for i in 0..10000 {
             let value2 = decode_signal_by_bytes(&frame, signal);
-            println!("get signal by bytes value {value2}");
+            //println!("get signal by bytes value {value2}");
             running_sum += value2;
-            assert_eq!(value2, 9833440926573470000.0);
+            assert_eq!(value2, s64_expected);
         }
         println!("running sum {running_sum}");
         let byte_shift_time = t3.elapsed().as_micros();
@@ -370,9 +393,9 @@ mod tests {
         let t4 = Instant::now();
         for i in 0..10000 {
             let value = decode_signal(&frame, signal);
-            println!("get signal value {value}");
+            //println!("get signal value {value}");
             running_sum += value;
-            assert_eq!(value, 9833440926573470000.0);
+            assert_eq!(value, s64_expected);
         }
         let bit_shift_time = t4.elapsed().as_micros();
         println!("running sum 2 {running_sum}");
