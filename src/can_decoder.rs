@@ -177,6 +177,30 @@ pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::DBC> {
     Ok(can_dbc::DBC::from_slice(&buffer).unwrap())
 }
 
+/// Retreive specification of  the message as read from the CAN DBC
+pub fn get_message_spec<'a>(
+    dbc: &'a can_dbc::DBC,
+    message_name: &str,
+) -> Option<&'a can_dbc::Message> {
+    let msg = dbc
+        .messages()
+        .iter()
+        .find(|m| m.message_name() == message_name);
+    return msg;
+}
+
+/// Retrieve the specification of the signal as read from the CAN DBC
+pub fn get_signal_spec<'a>(
+    message_spec: &'a can_dbc::Message,
+    signal_name: &str,
+) -> Option<&'a can_dbc::Signal> {
+    let signal = message_spec
+        .signals()
+        .iter()
+        .find(|s| s.name() == signal_name);
+    return signal;
+}
+
 //A slice of string slices
 const SIGNAL_NAMES: &[&str] = &[
     "shrt",
@@ -319,16 +343,9 @@ mod tests {
         let line = "(0.0) vcan0 00A#11223344FF667788";
         let frame = canlog_reader::parse_candump_line(line);
         let dbc = load_dbc("signed.dbc").unwrap();
-        let msg = dbc
-            .messages()
-            .iter()
-            .find(|m| m.message_name() == "Message378910")
-            .expect("did not find message");
-        let signal = msg
-            .signals()
-            .iter()
-            .find(|s| s.name() == "s3big")
-            .expect("could not find signal");
+
+        let msg = get_message_spec(&dbc, "Message378910").unwrap();
+        let signal = get_signal_spec(&msg, "s3big").unwrap();
 
         let value = decode_signal(&frame, signal);
         let value2 = decode_signal_by_bytes(&frame, signal);
@@ -369,16 +386,9 @@ mod tests {
             s64: -8613302515775888879
         )*/
         let s64_expected = -8613302515775888879.0;
-        let msg = dbc
-            .messages()
-            .iter()
-            .find(|m| m.message_name() == "Message64")
-            .expect("did not find message");
-        let signal = msg
-            .signals()
-            .iter()
-            .find(|s| s.name() == "s64")
-            .expect("could not find signal");
+        let msg = get_message_spec(&dbc, "Message64").unwrap();
+        let signal = get_signal_spec(&msg, "s64").unwrap();
+
         let t3 = Instant::now();
         let mut running_sum = 0.0;
         for i in 0..10000 {
@@ -426,16 +436,8 @@ mod tests {
 
         let frame = canlog_reader::parse_candump_line(line);
         let dbc = load_dbc("motohawk.dbc").unwrap();
-        let msg = dbc
-            .messages()
-            .iter()
-            .find(|m| m.message_name() == "ExampleMessage")
-            .expect("did not find message");
-        let signal = msg
-            .signals()
-            .iter()
-            .find(|s| s.name() == "Temperature")
-            .expect("could not find signal");
+        let msg = get_message_spec(&dbc, "ExampleMessage").unwrap();
+        let signal = get_signal_spec(&msg, "Temperature").unwrap();
 
         let time2 = Instant::now();
         for i in 0..1000 {
