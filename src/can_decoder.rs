@@ -440,14 +440,14 @@ mod tests {
         let signal = get_signal_spec(&msg, "Temperature").unwrap();
 
         let time2 = Instant::now();
-        for i in 0..1000 {
+        for _i in 0..1000 {
             let value2 = decode_signal_by_bytes(&frame, signal);
             assert_eq!(value2, expected_temperature);
         }
         let byte_shifting_time = time2.elapsed().as_micros();
 
         let time = Instant::now();
-        for i in 0..1000 {
+        for _i in 0..1000 {
             let value = decode_signal(&frame, signal);
             assert_eq!(value, expected_temperature);
         }

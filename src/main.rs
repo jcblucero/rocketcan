@@ -1,6 +1,6 @@
 use can_dbc::DBC;
 use plotters::prelude::*;
-use rocketcan::canlog_reader;
+use rocketcan::{can_decoder, canlog_reader};
 fn main() {
     println!("Hello, world!");
     println!("{:?}", rocketcan::create_saw_signal(1, 10));
@@ -14,33 +14,33 @@ fn main() {
     rocketcan::create_i32_plot(x_vals, signal, "saw_plot_from_main.png");
 
     //Parse and plot a signal from canfile
-    let desired_signal_name = "";
-    let designed_message_name = "";
-    let can_dbc = match rocketcan::can_decoder::load_dbc("my_dbc") {
+    let desired_signal_name = "s7big";
+    let desired_message_name = "Message378910";
+    let can_dbc = match rocketcan::can_decoder::load_dbc("signed.dbc") {
         Ok(can_dbc) => can_dbc,
         Err(err) => {
             panic!("Error loading dbc: {err}");
         }
     };
-    /*let log_reader = canlog_reader::CanLogReader::from_file("candump.log");
+    let log_reader = canlog_reader::CanLogReader::from_file("s7big.log");
     let mut timestamps = Vec::new();
     let mut data = Vec::new();
     let target_message = can_dbc
         .messages()
         .iter()
-        .find(|elm| elm.message_name() == designed_message_name);
-    let target_signal = target_message
-        .unwrap()
-        .signals()
-        .iter()
-        .find(|signal| signal.name() == desired_signal_name);
+        .find(|elm| elm.message_name() == desired_message_name)
+        .unwrap();
+    let target_signal =
+        can_decoder::get_signal_spec(&target_message, &desired_signal_name).unwrap();
     for can_frame in log_reader {
         timestamps.push(can_frame.timestamp);
         //Check can_frame ID
         //sv = can_dbc.get_signal(can_frame,signal)
-        signal_value = rocketcan::can_decoder::get_signal(can_frame, target_signal);
+        let signal_value =
+            rocketcan::can_decoder::decode_signal_by_bytes(&can_frame, &target_signal);
         data.push(signal_value)
     }
+    println!("{:?}", data);
     //rocketcan::create_i32_plot(timestamps, data, "MySignalPlot");*/
 
     /*
