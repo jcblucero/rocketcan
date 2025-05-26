@@ -1,5 +1,3 @@
-use can_dbc::DBC;
-use plotters::prelude::*;
 use rocketcan::{can_decoder, canlog_reader};
 fn main() {
     println!("Hello, world!");
@@ -25,11 +23,7 @@ fn main() {
     let log_reader = canlog_reader::CanLogReader::from_file("s7big.log");
     let mut timestamps = Vec::new();
     let mut data = Vec::new();
-    let target_message = can_dbc
-        .messages()
-        .iter()
-        .find(|elm| elm.message_name() == desired_message_name)
-        .unwrap();
+    let target_message = can_decoder::get_message_spec(&can_dbc, desired_message_name).unwrap();
     let target_signal =
         can_decoder::get_signal_spec(&target_message, &desired_signal_name).unwrap();
     for can_frame in log_reader {
@@ -41,6 +35,7 @@ fn main() {
         data.push(signal_value)
     }
     println!("{:?}", data);
+    rocketcan::create_f64_plot(timestamps, data, "s7big-plot.png");
     //rocketcan::create_i32_plot(timestamps, data, "MySignalPlot");*/
 
     /*

@@ -62,16 +62,7 @@ pub fn create_i32_plot(x_data: Vec<i32>, y_data: Vec<i32>, plot_name: &str) {
     root.present().unwrap();
 }
 
-pub fn create_any_plot<T: AsRangedCoord + Clone, U: AsRangedCoord>(
-    /*<T: AsRangedCoord + Ranged + Ord + CoordTranslate + Copy>(
-    x_data: Vec<T>,
-    y_data: Vec<T>,*/
-    x_data: Vec<T>,
-    y_data: Vec<T>,
-    x_spec: U,
-    y_spec: U,
-    plot_name: &str,
-) {
+pub fn create_f64_plot(x_data: Vec<f64>, y_data: Vec<f64>, plot_name: &str) {
     let x_max = x_data.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
     let y_max = y_data.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
     let x_min = x_data.iter().fold(f64::INFINITY, |a, &b| a.min(b));
@@ -86,7 +77,7 @@ pub fn create_any_plot<T: AsRangedCoord + Clone, U: AsRangedCoord>(
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
-        .build_cartesian_2d(x_spec, y_spec)
+        .build_cartesian_2d(x_range, y_range)
         .unwrap();
 
     let data_x_y: Vec<_> = x_data.iter().zip(y_data.iter()).collect();
