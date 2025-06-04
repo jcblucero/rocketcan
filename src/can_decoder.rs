@@ -2,6 +2,7 @@ use crate::canlog_reader::CanFrame;
 use can_dbc::DBC;
 use rand::prelude::*;
 use std::collections::HashMap;
+use std::fmt;
 use std::fs::File;
 use std::hint::black_box;
 use std::io::{self, Read};
@@ -9,17 +10,35 @@ use std::time::Instant;
 
 pub struct SignalsMap {
     pub names: Vec<String>,
-    pub values: Vec<f32>,
+    pub values: Vec<f64>,
 }
 
 impl SignalsMap {
-    pub fn new(signal_names: &[&str], values: &[f32]) -> SignalsMap {
+    pub fn new(signal_names: &[&str], values: &[f64]) -> SignalsMap {
         let owned_strings = signal_names.iter().map(|s| (*s).to_owned()).collect();
         SignalsMap {
             names: owned_strings,
             values: values.to_owned(),
         }
     }
+}
+/*
+impl fmt::Display for SignalsMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}*/
+
+/// Decode all the signal values from a given message
+pub fn decode_message(can_frame: &CanFrame, message_spec: &can_dbc::Message) -> SignalsMap {
+    let mut values = Vec::with_capacity(message_spec.signals().len());
+    let mut names = Vec::with_capacity(message_spec.signals().len());
+    for signal_spec in message_spec.signals() {
+        names.push(signal_spec.name().as_ref());
+        values.push(decode_signal(&can_frame, &signal_spec));
+    }
+
+    return SignalsMap::new(&names, &values);
 }
 
 /*
