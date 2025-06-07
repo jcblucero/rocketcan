@@ -11,7 +11,7 @@ fn main() {
     }
     rocketcan::create_i32_plot(x_vals, signal, "saw_plot_from_main.png");
 
-    //Parse and plot a signal from canfile
+    //Use Case 1: Parse and plot a signal from canfile
     let desired_signal_name = "s7big";
     let desired_message_name = "Message378910";
     let can_dbc = match rocketcan::can_decoder::load_dbc("signed.dbc") {
@@ -21,11 +21,11 @@ fn main() {
         }
     };
     let log_reader = canlog_reader::CanLogReader::from_file("s7big.log");
-    let mut timestamps = Vec::new();
-    let mut data = Vec::new();
     let target_message = can_decoder::get_message_spec(&can_dbc, desired_message_name).unwrap();
     let target_signal =
         can_decoder::get_signal_spec(&target_message, &desired_signal_name).unwrap();
+    let mut timestamps = Vec::new();
+    let mut data = Vec::new();
     for can_frame in log_reader {
         timestamps.push(can_frame.timestamp);
         //Check can_frame ID
@@ -36,15 +36,14 @@ fn main() {
     }
     println!("{:?}", data);
     rocketcan::create_f64_plot(timestamps, data, "s7big-plot.png");
-    //rocketcan::create_i32_plot(timestamps, data, "MySignalPlot");*/
-
-    /*
-    Use case 2: Printing data values
+    //rocketcan::create_i32_plot(timestamps, data, "MySignalPlot");
+    //Use case 2: Printing data values
+    let log_reader = canlog_reader::CanLogReader::from_file("s7big.log");
     for can_frame in log_reader {
-        signal_map = can_dbc.decode_message(can_frame)
-        print(signal_map)
+        let signal_map = can_decoder::decode_message(&can_frame, &target_message);
+        print!("{:#}", signal_map);
     }
-     */
+
     /* converting formats
     for can_frame in log_reader {
         let blf_line: str = can_frame.into_blf_line();

@@ -22,23 +22,66 @@ impl SignalsMap {
         }
     }
 }
-/*
+
 impl fmt::Display for SignalsMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}, {})", self.x, self.y)
+        write!(f, "{{\n")?;
+        for (name, value) in self.names.iter().zip(self.values.iter()) {
+            write!(f, "{}: {},\n", name, value)?;
+        }
+        write!(f, "}}")?;
+        return Ok(());
     }
-}*/
+}
+
+pub struct DecodedCanMessage {
+    pub id: u32,
+    pub name: String,
+    pub signals: Vec<String>,
+    pub values: Vec<f64>,
+}
+
+impl fmt::Display for DecodedCanMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} : {:#X} ", self.name, self.id)?;
+        write!(f, "{{\n")?;
+        //Alternate form prints horizontally
+        if f.alternate() {
+            for signal_name in self.signals.iter() {
+                write!(f, "{signal_name} \t")?;
+            }
+            write!(f, "\n")?;
+            for value in self.values.iter() {
+                write!(f, "{value} \t")?;
+            }
+        }
+        //Standard form prints vertically
+        else {
+            for (signal_name, value) in self.signals.iter().zip(self.values.iter()) {
+                write!(f, "{}: {},\n", signal_name, value)?;
+            }
+        }
+
+        write!(f, "}}\n")?;
+        return Ok(());
+    }
+}
 
 /// Decode all the signal values from a given message
-pub fn decode_message(can_frame: &CanFrame, message_spec: &can_dbc::Message) -> SignalsMap {
+pub fn decode_message(can_frame: &CanFrame, message_spec: &can_dbc::Message) -> DecodedCanMessage {
     let mut values = Vec::with_capacity(message_spec.signals().len());
     let mut names = Vec::with_capacity(message_spec.signals().len());
     for signal_spec in message_spec.signals() {
-        names.push(signal_spec.name().as_ref());
+        names.push(signal_spec.name().clone());
         values.push(decode_signal(&can_frame, &signal_spec));
     }
 
-    return SignalsMap::new(&names, &values);
+    return DecodedCanMessage {
+        id: can_frame.id,
+        name: message_spec.message_name().clone(),
+        signals: names,
+        values: values,
+    };
 }
 
 /*
@@ -476,6 +519,21 @@ mod tests {
         println!("{:?}", frame);
         //assert_eq!(value, 955.0);
         //assert_eq!(value2, 955.0);
+    }
+    #[test]
+    fn test_decode_msg_and_parse() {
+        let line = "(0.0) vcan0 1F0#A5B6D90000000000";
+        /*let expected_signals = HashMap::from([
+            ("Enable", 1.0),
+            ("AverageRadius", 1.8),
+            ("Temperature", 244.14),
+        ]);*/
+        let frame = canlog_reader::parse_candump_line(line);
+        let dbc = load_dbc("motohawk.dbc").unwrap();
+        let msg_spec = get_message_spec(&dbc, "ExampleMessage").unwrap();
+        let msg = decode_message(&frame, &msg_spec);
+
+        println!("{msg}");
     }
 }
 
