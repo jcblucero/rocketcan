@@ -40,8 +40,8 @@ fn main() {
     //Use case 2: Printing data values
     let log_reader = canlog_reader::CanLogReader::from_file("s7big.log");
     for can_frame in log_reader {
-        let signal_map = can_decoder::decode_message(&can_frame, &target_message);
-        print!("{:#}", signal_map);
+        let can_msg = can_decoder::decode_message(&can_frame, &target_message);
+        print!("{:#}", can_msg);
     }
 
     /* converting formats
