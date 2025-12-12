@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-plotters = "0.3.7"
 rand = "0.9.1"
 can-dbc = "6.0.0"
 getrandom = { version = "0.3.3", features = ["wasm_js"] }

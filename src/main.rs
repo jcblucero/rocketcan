@@ -7,7 +7,6 @@ fn main() {
     for i in 0..signal.len() as i32 {
         x_vals.push(i);
     }
-    rocketcan::create_i32_plot(x_vals, signal, "saw_plot_from_main.png");
 
     //Use Case 1: Parse and plot a signal from canfile
     let desired_signal_name = "s7big";
