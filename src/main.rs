@@ -2,8 +2,6 @@ use rocketcan::{can_decoder, canlog_reader};
 fn main() {
     println!("Hello, world!");
     println!("{:?}", rocketcan::create_saw_signal(1, 10));
-    rocketcan::create_demo_plot().unwrap();
-    rocketcan::create_saw_plot();
     let signal = rocketcan::create_saw_signal(0, 10);
     let mut x_vals = Vec::new();
     for i in 0..signal.len() as i32 {
@@ -35,7 +33,7 @@ fn main() {
         data.push(signal_value)
     }
     println!("{:?}", data);
-    rocketcan::create_f64_plot(timestamps, data, "s7big-plot.png");
+    //rocketcan::create_f64_plot(timestamps, data, "s7big-plot.png");
     //rocketcan::create_i32_plot(timestamps, data, "MySignalPlot");
     //Use case 2: Printing data values
     let log_reader = canlog_reader::CanLogReader::from_file("s7big.log");
