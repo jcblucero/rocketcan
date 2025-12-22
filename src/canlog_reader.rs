@@ -1,5 +1,6 @@
 use std::borrow::Borrow;
 use std::fmt::Error;
+use std::fmt::Write;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 
@@ -70,6 +71,15 @@ pub fn parse_candump_line(line: &str) -> CanFrame {
         len: data_len,
         data: data,
     };
+}
+
+/// Convert a CanFrame to an ascii candump line
+pub fn frame_to_candump_line(frame: CanFrame) -> String {
+    let mut s = format!("({}) vcan0 {:X}#", frame.timestamp, frame.id);
+    for i in 0..frame.len as usize {
+        write!(s, "{:02X}", frame.data[i]).unwrap();
+    }
+    return s;
 }
 pub struct CanLogReader<T>
 where

@@ -1,4 +1,5 @@
 use rocketcan::{can_decoder, canlog_reader};
+use std::io::Write;
 fn main() {
     println!("Hello, world!");
     println!("{:?}", rocketcan::create_saw_signal(1, 10));
@@ -48,4 +49,34 @@ fn main() {
     }
     log_reader.iter().map(|frame| frame.into_blf_line()).write
      */
+
+    /// Re-write timestamps
+    let log = canlog_reader::CanLogReader::from_file(
+        "/home/jacob/rust_projects/aphryx-canx-nissan-leaf/demo_meet_400k.log",
+    );
+    //let writer = canlog_reader::CanLogWriter("")
+    let output_path =
+        "/home/jacob/rust_projects/aphryx-canx-nissan-leaf/demo_meet_400k_revised.log";
+    let mut output_file = std::fs::File::create(output_path).unwrap();
+
+    let mut time = 0.;
+    let mut first_time = true;
+    for mut can_frame in log {
+        if first_time {
+            time = can_frame.timestamp;
+            first_time = false;
+        }
+
+        can_frame.timestamp = time;
+
+        writeln!(
+            output_file,
+            "{}",
+            canlog_reader::frame_to_candump_line(can_frame)
+        )
+        .unwrap();
+        time += 0.1;
+    }
+    //let filename = "~/rust_projects/aphryx-canx-nissan-leaf/demo_meet_200k.log";
+    //or line in
 }
