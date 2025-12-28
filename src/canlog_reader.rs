@@ -2,9 +2,11 @@ use std::borrow::Borrow;
 use std::fmt::Error;
 use std::fmt::Write;
 use std::fs::File;
+use std::io::Cursor;
 use std::io::{self, BufRead, BufReader};
+use std::time::Instant;
 
-#[derive(Debug)]
+#[derive(Debug,PartialEq, PartialOrd)]
 pub struct CanFrame {
     // Timestamp: Time the data was received (seconds)
     pub timestamp: f64,
@@ -81,48 +83,63 @@ pub fn frame_to_candump_line(frame: CanFrame) -> String {
     }
     return s;
 }
+
+pub struct CanLogParser/*<R>*/{
+    //reader: R,
+    reader: Box<dyn BufRead>,
+    buf: String, // local buf to re-use so we don't keep allocating
+}
+
+impl CanLogParser {
+
+    /// Create CanLogParser from a file path
+    pub fn from_file(path: &std::path::Path) -> io::Result<Self> {
+        let file = File::open(path)?;
+        Ok( CanLogParser { 
+            reader: Box::new(BufReader::new(file)), 
+            buf: String::new(),
+        })
+    }
+
+    /// Create CanLogParser from raw bytes
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        CanLogParser { 
+            reader: Box::new(Cursor::new(bytes)), 
+            buf: String::new(),
+        }
+    }
+
+    /// Create CanLogParser from any type that implements the BufRead trait
+    pub fn from_reader<R: BufRead + 'static>(reader: R) -> Self {
+        Self {
+            reader: Box::new(reader),
+            buf: String::new(),
+        }
+    }
+
+}
+
+impl Iterator for CanLogParser {
+    type Item = CanFrame;
+
+    fn next(&mut self) -> Option<Self::Item>{
+        self.buf.clear();
+        match self.reader.read_line(&mut self.buf) {
+            Ok(0) => None,
+            Ok(_) => {
+                //Some(String::from(self.buf.trim_end()))
+                Some(parse_candump_line(&self.buf))
+            }
+            Err(_) => None,
+        }
+    }
+}
 pub struct CanLogReader<T>
 where
     T: Iterator,
 {
     iterable: T,
 }
-//Would have to implement trait for io::Lines
-/*pub trait CanLogRead {
-    fn to_canlog_reader(self) -> CanLogReader<Self>
-    where
-        Self: Sized,
-    {
-        CanLogReader { iterable: self }
-    }
-}
-
-impl<T> CanLogRead for io::Lines<T> {}
-*/
-/*
-impl<T> CanLogReader<T>
-where
-    T: Iterator<Item: std::borrow::Borrow<str>>,
-    //T: IntoIterator<Item: std::borrow::Borrow<str>>,
-    //I: Iterator<Item: std::borrow::Borrow<str>>,
-{
-    fn from_file(filename: &str) -> CanLogReader<io::Lines<BufReader<File>>> {
-        let Ok(f) = File::open(filename) else {
-            panic!("Unable to open file named {filename}");
-        };
-        let buf_reader = BufReader::new(f);
-        let t = buf_reader.lines();
-        CanLogReader { reader: t }
-    }
-
-    fn from_string<'a>(string: &'a String) -> CanLogReader<Vec<&str>> {
-        let t = string.lines().collect();
-        CanLogReader::<Vec<&str>> {
-            reader: t,
-            iter: None,
-        }
-    }
-}*/
 
 impl<T> Iterator for CanLogReader<T>
 where
@@ -154,6 +171,8 @@ impl CanLogReader<LinesFileBufReader> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Seek;
+
     use super::*;
     /*#[test]
     fn test_from_string() {
@@ -177,10 +196,71 @@ mod tests {
         //let mut cr = t.to_canlog_reader();
         let mut cr = CanLogReader { iterable: t };
         let cr = CanLogReader::from_file(filename);
+        let mut can_reader_collection = Vec::new();
         for can_frame in cr {
             println!("{:?}", can_frame);
+            can_reader_collection.push(can_frame);
+        }
+
+        let can_parser = CanLogParser::from_file(std::path::Path::new(filename)).unwrap();
+        let mut can_parser_collection = Vec::new();
+        for can_frame in can_parser {
+            println!("{:?}", can_frame);
+            can_parser_collection.push(can_frame);
+        } 
+
+        assert_eq!(can_parser_collection.len(), can_reader_collection.len());
+        for i in 0..can_parser_collection.len() {
+            assert_eq!(can_parser_collection[i], can_reader_collection[i]);
         }
     }
+
+    #[test]
+    fn benchmark_reading() {
+        //let filename = "candump.log";
+        let filename = "can_samples/aphryx-canx-nissan-leaf/demo_meet_200k_revised.log";
+        let reader = CanLogReader::from_file(filename);
+        let parser = CanLogParser::from_file(std::path::Path::new(filename)).unwrap();
+        let parser2 = CanLogParser::from_file(std::path::Path::new(filename)).unwrap();
+
+        let parser_t1 = Instant::now();
+        let mut v0 = Vec::new();
+        for frame in parser {
+            //println!("{:?}",frame);
+            v0.push(frame);
+        }
+
+        let total_time = Instant::now();
+        let reader_t1 = Instant::now();
+        let mut v1 = Vec::new();
+        for frame in reader {
+            //println!("{:?}",frame);
+            v1.push(frame);
+        }
+        let reader_time = reader_t1.elapsed().as_micros();
+
+        let parser_t1 = Instant::now();
+        let mut v2 = Vec::new();
+        for frame in parser2 {
+            //println!("{:?}",frame);
+            v2.push(frame)
+        }
+        let parser_time = parser_t1.elapsed().as_micros();
+
+        /*let reader_t1 = Instant::now();
+        let mut v1 = Vec::new();
+        for frame in reader {
+            //println!("{:?}",frame);
+            v1.push(frame);
+        }
+        let reader_time = reader_t1.elapsed().as_micros();*/
+
+        let total_time = total_time.elapsed().as_micros();
+        println!("Reader: {reader_time}, Parser {parser_time}, Total {total_time}");
+        println!("v1 len {}, v2 len {}, v0 len {}", v1.len(),v2.len(),v0.len());
+    }
+
+
     #[test]
     fn test_ascii_hex_data() {
         let expected = vec![1u8, 2u8, 17u8, 18u8, 10u8, 11u8];

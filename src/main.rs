@@ -52,11 +52,11 @@ fn main() {
 
     /// Re-write timestamps
     let log = canlog_reader::CanLogReader::from_file(
-        "/home/jacob/rust_projects/aphryx-canx-nissan-leaf/demo_meet_400k.log",
+        "/home/jlucero/projects/rocketcan/can_samples/aphryx-canx-nissan-leaf/demo_meet_200k.log",
     );
     //let writer = canlog_reader::CanLogWriter("")
     let output_path =
-        "/home/jacob/rust_projects/aphryx-canx-nissan-leaf/demo_meet_400k_revised.log";
+        "/home/jlucero/projects/rocketcan/can_samples/aphryx-canx-nissan-leaf/demo_meet_200k_revised.log";
     let mut output_file = std::fs::File::create(output_path).unwrap();
 
     let mut time = 0.;
