@@ -235,8 +235,11 @@ pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::DBC> {
         Ok(can_dbc) => Ok(can_dbc),
         Err(e) => io::Error(e.kind()),
     }*/
-
-    Ok(can_dbc::DBC::from_slice(&buffer).unwrap())
+    let maybe_dbc = can_dbc::DBC::from_slice(&buffer);
+    match maybe_dbc {
+        Ok(dbc) => Ok(dbc),
+        _ => Err(io::Error::new(io::ErrorKind::Other,"Error loading dbc")),
+    }
 }
 
 /// Retreive specification of  the message as read from the CAN DBC
