@@ -4,8 +4,10 @@ use std::fmt::Write;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::{self, BufRead, BufReader};
+use std::num::ParseIntError;
 use std::time::Instant;
 
+const DEFAULT_FRAME_PAYLOAD_LEN: usize = 8;
 #[derive(Debug,PartialEq, PartialOrd)]
 pub struct CanFrame {
     // Timestamp: Time the data was received (seconds)
@@ -15,7 +17,7 @@ pub struct CanFrame {
     // Data Length Code (DLC), 0 to 8 for CAN, 0 to 64 for CAN FD
     pub len: u8,
     // Payload data, can store up to 64 bytes for CAN FD, 8 bytes for standard CAN
-    pub data: [u8; 64],
+    pub data: [u8; DEFAULT_FRAME_PAYLOAD_LEN],
 }
 /*
 (1436509052.249713) vcan0 044#2A366C2BBA
@@ -31,18 +33,18 @@ pub struct CanFrame {
 */
 
 /// Turn ascii hex data into byte values
-pub fn ascii_hex_to_bytes(hex_str: &str) -> [u8; 64] {
-    let mut data_bytes = [0; 64];
+pub fn ascii_hex_to_bytes(hex_str: &str) -> Result<[u8; DEFAULT_FRAME_PAYLOAD_LEN],ParseIntError> {
+    let mut data_bytes = [0; DEFAULT_FRAME_PAYLOAD_LEN];
 
     let mut index = 0;
     let mut i = 0;
     while i < hex_str.len() {
-        data_bytes[index] = u8::from_str_radix(&hex_str[i..i + 2], 16)
-            .expect(&format!("failed to parse data bytes {}", hex_str));
+        data_bytes[index] = u8::from_str_radix(&hex_str[i..i + 2], 16)?;
+            //.expect(&format!("failed to parse data bytes {}", hex_str));
         index += 1;
         i += 2;
     }
-    return data_bytes;
+    return Ok(data_bytes);
 }
 
 /// Parse a line in candump format
@@ -50,29 +52,29 @@ pub fn ascii_hex_to_bytes(hex_str: &str) -> [u8; 64] {
 /// ```
 /// rocketcan::canlog_reader::parse_candump_line(" (1436509053.850870) vcan0 1A0#9C20407F96EA167B");
 /// ```
-pub fn parse_candump_line(line: &str) -> CanFrame {
+pub fn parse_candump_line(line: &str) -> anyhow::Result<CanFrame> { //TODO: Change anyhow to custom error type
     //Error in case parsing fails
-    let error_msg = format!("Error parsing line: {}", line);
 
     let mut line_splits = line.split_whitespace();
     //Get timestamp
-    let timestamp = line_splits.next().expect(&error_msg);
+    let timestamp = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error parsing timestamp of {line}"))?;
     let timestamp = &timestamp[1..timestamp.len() - 1];
-    let timestamp = timestamp.parse::<f64>().expect(&error_msg);
+    let timestamp = timestamp.parse::<f64>()?;
     // CAN interface name
-    let _interface_name = line_splits.next();
+    let _interface_name = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error parsing interface of {line}"));
     //ID
-    let id_and_data: Vec<_> = line_splits.next().expect(&error_msg).split('#').collect();
-    let id = u32::from_str_radix(id_and_data[0], 16).expect(&error_msg);
+    let id_and_data: Vec<_> = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error no id#data on {line}"))?
+        .split('#').collect();
+    let id = u32::from_str_radix(id_and_data[0], 16)?;
     let ascii_data = id_and_data[1];
-    let data = ascii_hex_to_bytes(id_and_data[1]);
+    let data = ascii_hex_to_bytes(id_and_data[1])?;
     let data_len = (ascii_data.len() / 2) as u8;
-    return CanFrame {
+    return Ok(CanFrame {
         timestamp: timestamp,
         id: id,
         len: data_len,
         data: data,
-    };
+    });
 }
 
 /// Convert a CanFrame to an ascii candump line
@@ -128,7 +130,10 @@ impl Iterator for CanLogParser {
             Ok(0) => None,
             Ok(_) => {
                 //Some(String::from(self.buf.trim_end()))
-                Some(parse_candump_line(&self.buf))
+                //Some(parse_candump_line(&self.buf))
+                //TODO: Should this cause an error? 
+                //Consider returning Option<Result<CanFrame>> to indicate parse failure on line to user
+                parse_candump_line(&self.buf).ok() //throw away parsing failures here...
             }
             Err(_) => None,
         }
@@ -150,7 +155,8 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(line) = self.iterable.next() {
             //println!("{}", line.unwrap());
-            return Some(parse_candump_line(&line.unwrap()));
+            //return Some(parse_candump_line(&line.unwrap()));
+            return parse_candump_line(&line.unwrap()).ok();
         }
         return None;
     }
@@ -264,7 +270,7 @@ mod tests {
     #[test]
     fn test_ascii_hex_data() {
         let expected = vec![1u8, 2u8, 17u8, 18u8, 10u8, 11u8];
-        let result = ascii_hex_to_bytes("010211120A0B");
+        let result = ascii_hex_to_bytes("010211120A0B").unwrap();
         for i in 0..expected.len() {
             assert_eq!(expected[i], result[i]);
         }

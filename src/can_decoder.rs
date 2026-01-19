@@ -406,7 +406,7 @@ mod tests {
         let s3big_expected = -1.0;
         let s3_expected = -1.0;
         let line = "(0.0) vcan0 00A#11223344FF667788";
-        let frame = canlog_reader::parse_candump_line(line);
+        let frame = canlog_reader::parse_candump_line(line).unwrap();
         let dbc = load_dbc("signed.dbc").unwrap();
 
         let msg = get_message_spec(&dbc, "Message378910").unwrap();
@@ -499,7 +499,7 @@ mod tests {
         let expected_average_radius = 1.8;
         let expected_temperature = 244.14;
 
-        let frame = canlog_reader::parse_candump_line(line);
+        let frame = canlog_reader::parse_candump_line(line).unwrap();
         let dbc = load_dbc("motohawk.dbc").unwrap();
         let msg = get_message_spec(&dbc, "ExampleMessage").unwrap();
         let signal = get_signal_spec(&msg, "Temperature").unwrap();
@@ -531,7 +531,7 @@ mod tests {
             ("AverageRadius", 1.8),
             ("Temperature", 244.14),
         ]);*/
-        let frame = canlog_reader::parse_candump_line(line);
+        let frame = canlog_reader::parse_candump_line(line).unwrap();
         let dbc = load_dbc("motohawk.dbc").unwrap();
         let msg_spec = get_message_spec(&dbc, "ExampleMessage").unwrap();
         let msg = decode_message(&frame, &msg_spec);
