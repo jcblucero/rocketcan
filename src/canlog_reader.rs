@@ -7,7 +7,7 @@ use std::io::{self, BufRead, BufReader};
 use std::num::ParseIntError;
 use std::time::Instant;
 
-const DEFAULT_FRAME_PAYLOAD_LEN: usize = 8;
+const DEFAULT_FRAME_PAYLOAD_LEN: usize = 64;
 #[derive(Debug,PartialEq, PartialOrd)]
 pub struct CanFrame {
     // Timestamp: Time the data was received (seconds)
@@ -18,6 +18,7 @@ pub struct CanFrame {
     pub len: u8,
     // Payload data, can store up to 64 bytes for CAN FD, 8 bytes for standard CAN
     pub data: [u8; DEFAULT_FRAME_PAYLOAD_LEN],
+    //pub data: Vec<u8>, This is ~3-5ms slower than 64 byte over 200k lines
 }
 /*
 (1436509052.249713) vcan0 044#2A366C2BBA
@@ -34,11 +35,14 @@ pub struct CanFrame {
 
 /// Turn ascii hex data into byte values
 pub fn ascii_hex_to_bytes(hex_str: &str) -> Result<[u8; DEFAULT_FRAME_PAYLOAD_LEN],ParseIntError> {
+//pub fn ascii_hex_to_bytes(hex_str: &str) -> Result<Vec<u8>,ParseIntError> {
     let mut data_bytes = [0; DEFAULT_FRAME_PAYLOAD_LEN];
+    //let mut data_bytes = Vec::new();
 
     let mut index = 0;
     let mut i = 0;
     while i < hex_str.len() {
+        //data_bytes.push(u8::from_str_radix(&hex_str[i..i + 2], 16)?);
         data_bytes[index] = u8::from_str_radix(&hex_str[i..i + 2], 16)?;
             //.expect(&format!("failed to parse data bytes {}", hex_str));
         index += 1;
@@ -262,7 +266,7 @@ mod tests {
         let reader_time = reader_t1.elapsed().as_micros();*/
 
         let total_time = total_time.elapsed().as_micros();
-        println!("Reader: {reader_time}, Parser {parser_time}, Total {total_time}");
+        println!("Reader: {reader_time} us, Parser {parser_time} us , Total {total_time} us");
         println!("v1 len {}, v2 len {}, v0 len {}", v1.len(),v2.len(),v0.len());
     }
 
