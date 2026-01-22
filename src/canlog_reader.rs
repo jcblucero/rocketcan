@@ -12,8 +12,13 @@ const DEFAULT_FRAME_PAYLOAD_LEN: usize = 64;
 pub struct CanFrame {
     // Timestamp: Time the data was received (seconds)
     pub timestamp: f64,
+    // Name of the CAN channel the data occurred on.
+    pub channel: String,
     // CAN ID: 11-bit standard or 29-bit extended ID
     pub id: u32,
+    // Was the data received? True for receive, false for transmitted.
+    // Default is True(receive) if not specified in the log
+    pub is_rx: bool,
     // Data Length Code (DLC), 0 to 8 for CAN, 0 to 64 for CAN FD
     pub len: u8,
     // Payload data, can store up to 64 bytes for CAN FD, 8 bytes for standard CAN
@@ -65,7 +70,7 @@ pub fn parse_candump_line(line: &str) -> anyhow::Result<CanFrame> { //TODO: Chan
     let timestamp = &timestamp[1..timestamp.len() - 1];
     let timestamp = timestamp.parse::<f64>()?;
     // CAN interface name
-    let _interface_name = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error parsing interface of {line}"));
+    let interface_name = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error parsing interface of {line}"))?;
     //ID
     let id_and_data: Vec<_> = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error no id#data on {line}"))?
         .split('#').collect();
@@ -75,7 +80,9 @@ pub fn parse_candump_line(line: &str) -> anyhow::Result<CanFrame> { //TODO: Chan
     let data_len = (ascii_data.len() / 2) as u8;
     return Ok(CanFrame {
         timestamp: timestamp,
+        channel: interface_name.to_owned(),
         id: id,
+        is_rx: true, //Candump doesn't specify, default is true.
         len: data_len,
         data: data,
     });

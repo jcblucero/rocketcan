@@ -1,5 +1,6 @@
+use ablf::BlfFile;
 use rocketcan::{can_decoder, canlog_reader};
-use std::io::Write;
+use std::{fs::File, io::Write};
 fn main() {
     println!("Hello, world!");
     println!("{:?}", rocketcan::create_saw_signal(1, 10));
@@ -77,6 +78,18 @@ fn main() {
         .unwrap();
         time += 0.1;
     }
+
+    //TESTING BLF READING
+    /*println!("--Testing BLF Reading---");
+    let file = File::open("can_samples/gpl-licensed-blf-technica/test_CanFdMessage.blf").unwrap();
+    let reader = std::io::BufReader::new(file);
+    let blf = BlfFile::from_reader(reader).unwrap();
+    println!("{:?}", blf.file_stats);
+    for t in blf {
+        dbg!(t);
+    }*/
+    
+
     //let filename = "~/rust_projects/aphryx-canx-nissan-leaf/demo_meet_200k.log";
     //or line in
 }
