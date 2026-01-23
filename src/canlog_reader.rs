@@ -25,6 +25,21 @@ pub struct CanFrame {
     pub data: [u8; DEFAULT_FRAME_PAYLOAD_LEN],
     //pub data: Vec<u8>, This is ~3-5ms slower than 64 byte over 200k lines
 }
+
+
+impl Default for CanFrame {
+    fn default() -> Self {
+        CanFrame {
+            // Use the array initialization syntax [x; N]
+            timestamp: 0.0,
+            channel: String::new(),
+            id: 0,
+            is_rx: false,
+            len: 0,
+            data:[0; DEFAULT_FRAME_PAYLOAD_LEN], 
+        }
+    }
+}
 /*
 (1436509052.249713) vcan0 044#2A366C2BBA
 (1436509052.449847) vcan0 0F6#7ADFE07BD2
@@ -86,6 +101,57 @@ pub fn parse_candump_line(line: &str) -> anyhow::Result<CanFrame> { //TODO: Chan
         len: data_len,
         data: data,
     });
+}
+
+/// Parse a line in ascii format from Vector tool
+/// 
+/// <Time> <Channel> <ID> <Dir> d <DLC> <D0> <D1>...<D8> <MessageFlags>
+/// 1.000000 1  100             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 100
+/// ```
+/// rocketcan::canlog_parser::parse_ascii_line(" (1436509053.850870) vcan0 1A0#9C20407F96EA167B");
+/// ```
+/// 
+/// CAN Remote Frame Event
+/// <Time> <Channel> <ID> <Dir> r
+/// 1.000000 1  100             Tx   r
+pub fn parse_ascii_line(line: &str) -> anyhow::Result<CanFrame> {
+    //let mut line_splits = line.split_whitespace();
+
+    //let timestamp = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error parsing timestamp of {line}"))?;
+    let mut frame: CanFrame = Default::default();
+    let data_start = 6;
+    let mut data_end = 6;
+
+    //frame.timestamp = line_splits.next()?.parse::<f64>()?;
+    for (i,item) in line.split_whitespace().enumerate() {
+        match i {
+            0 => frame.timestamp = item.parse::<f64>()?,
+            1 => frame.channel = item.to_owned(),
+            2 => frame.id = u32::from_str_radix(item, 10)?,
+            3 => frame.is_rx = item == "Rx",
+            4 => { //Normal frame, or remote frame?
+                //If it is a remote frame, end now
+                frame.len = 0;
+                return Ok(frame);
+            }
+            5 => { //Data length
+                frame.len = u8::from_str_radix(item, 10)?;
+                data_end = data_start + frame.len as usize;
+            },
+            //Max datalen is 64
+            6..70 => { //Filling data fields
+                let byte = u8::from_str_radix(item,16)?;
+                frame.data[i-data_start] = byte;
+                if i == data_end{
+                    return Ok(frame);
+                } else if i > data_end{
+                    return Err(anyhow::anyhow!("Parse ascii error"));
+                }
+            },
+            _ => return Err(anyhow::anyhow!("Parse ascii error")),
+        }
+    }
+    Err(anyhow::anyhow!("Parse ascii error"))
 }
 
 /// Convert a CanFrame to an ascii candump line
