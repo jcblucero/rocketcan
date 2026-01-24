@@ -476,21 +476,6 @@ mod tests {
         //It returns error on candump line
         let candump_line = "(1436509053.850870) vcan0 1A0#9C20407F96EA167B";
         assert!(parse_ascii_line(candump_line, AsciiBase::Hex).is_err());
-
-        //Base decimal test
-        /*let ascii_8 = "1.000000 1  100             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 100";
-        let mut expected_frame = CanFrame {
-            timestamp: 1.0,
-            channel: String::from("1"),
-            id: 100,
-            is_rx: false,
-            len: 8,
-            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
-        };
-        for i in 1..=8 {
-            expected_frame.data[i-1] = i as u8;
-        }
-        assert_eq!(expected_frame, parse_ascii_line(ascii_8).unwrap());*/
     }
 
     #[test]
@@ -510,6 +495,7 @@ mod tests {
 
     #[test]
     // Check parsing when using hex base and dec base (16 vs. 10)
+    // Also covers CAN 2.0 parse
     fn test_ascii_base_dec_vs_hex() {
         let ascii_line = "0.400291 1  150       Rx   d 8 11 22 33 44 55 66 77 88";
         let mut expected_frame = CanFrame {
@@ -527,6 +513,10 @@ mod tests {
         fill_bytes(&mut expected_frame.data[0..8], 17, 17);
         expected_frame.id = 336;
         assert_eq!(expected_frame, parse_ascii_line(ascii_line,AsciiBase::Hex).unwrap());
+
+        //Check that parsing can also handle extra data at end, which vector ascii seems to include sometimes
+        let extra_data_line = ascii_line.to_owned() +  " Length = 225910 BitCount = 117 ID = 383";
+        assert_eq!(expected_frame, parse_ascii_line(&extra_data_line,AsciiBase::Hex).unwrap());
     }
 
     #[test]
@@ -547,20 +537,9 @@ mod tests {
         assert_eq!(expected_frame, parse_ascii_line(extended_id_line, AsciiBase::Dec).unwrap());
     }
 
-    //TODO: REMOVE
     #[test]
-    fn test_parse_ascii_hex_base() {
-        //4 bytes
-        let hex_id_line = "0.217398 2  30B             Rx   d 4 00 00 00 00  Length = 236000 BitCount = 122 ID = 779";
-        let expected_frame = CanFrame {
-            timestamp: 0.217398,
-            channel: String::from("1"),
-            id: u32::from_str_radix("30B", 16).unwrap(),
-            is_rx: true,
-            len: 4,
-            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
-        };
-        assert_eq!(expected_frame, parse_ascii_line(hex_id_line, AsciiBase::Hex).unwrap());
+    fn test_ascii_can_fd() {
+
     }
 
     
