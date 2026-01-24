@@ -113,32 +113,41 @@ pub fn parse_candump_line(line: &str) -> anyhow::Result<CanFrame> { //TODO: Chan
     });
 }
 
+/// Base format for Vector ascii parsing. Hex or Decimal (base 10).
+pub enum AsciiBase {
+    Hex,
+    Dec,
+}
 /// Parse a line in ascii format from Vector tool
 /// 
 /// <Time> <Channel> <ID> <Dir> d <DLC> <D0> <D1>...<D8> <MessageFlags>
 /// 1.000000 1  100             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 100
 /// ```
-/// let test_string = "1.000000 1  100             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 100";
-/// assert!(rocketcan::canlog_reader::parse_ascii_line(test_string).is_ok());
+/// let test_string = "1.5 1  150             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 150";
+/// assert!(rocketcan::canlog_reader::parse_ascii_line(test_string, AsciiBase::Dec).is_ok());
 /// ```
 /// 
 /// CAN Remote Frame Event
 /// <Time> <Channel> <ID> <Dir> r
 /// 1.000000 1  100             Tx   r
-pub fn parse_ascii_line(line: &str) -> anyhow::Result<CanFrame> {
+pub fn parse_ascii_line(line: &str, base: AsciiBase) -> anyhow::Result<CanFrame> {
     //let mut line_splits = line.split_whitespace();
 
     //let timestamp = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error parsing timestamp of {line}"))?;
     let mut frame: CanFrame = Default::default();
     let data_start = 6;
     let mut data_end = 6;
+    let radix = match base {
+        AsciiBase::Hex => 16,
+        AsciiBase::Dec => 10,
+    };
 
     //frame.timestamp = line_splits.next()?.parse::<f64>()?;
     for (i,item) in line.split_whitespace().enumerate() {
         match i {
             0 => frame.timestamp = item.parse::<f64>()?,
             1 => frame.channel = item.to_owned(),
-            2 => frame.id = u32::from_str_radix(item, 16)?,
+            2 => frame.id = u32::from_str_radix(item, radix)?,
             3 => frame.is_rx = item == "Rx",
             4 => { //Normal frame, or remote frame?
                 //If it is a remote frame, end now.
@@ -160,13 +169,13 @@ pub fn parse_ascii_line(line: &str) -> anyhow::Result<CanFrame> {
                     return Err(anyhow::anyhow!("Parse ascii error"));
                 }
 
-                let byte = u8::from_str_radix(item,16)?;
+                let byte = u8::from_str_radix(item,radix)?;
                 frame.data[i-data_start] = byte;
             },
             _ => return Err(anyhow::anyhow!("Parse ascii error")),
         }
     }
-    Err(anyhow::anyhow!("Parse ascii error"))
+    Ok(frame)
 }
 
 /// Convert a CanFrame to an ascii candump line
@@ -458,7 +467,7 @@ mod tests {
     fn test_parse_ascii_line_error() {
         //It returns error on candump line
         let candump_line = "(1436509053.850870) vcan0 1A0#9C20407F96EA167B";
-        assert!(parse_ascii_line(candump_line).is_err());
+        assert!(parse_ascii_line(candump_line, AsciiBase::Hex).is_err());
 
         //Base decimal test
         /*let ascii_8 = "1.000000 1  100             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 100";
@@ -474,19 +483,42 @@ mod tests {
             expected_frame.data[i-1] = i as u8;
         }
         assert_eq!(expected_frame, parse_ascii_line(ascii_8).unwrap());*/
+    }
 
+    #[test]
+    fn test_ascii_remote_frame() {
         //Remote frame
-        let remote_frame = "1.000000 1  150             Tx   r";
+        let remote_frame = "1.500000 1  150             Tx   r";
         let expected_frame = CanFrame {
-            timestamp: 1.0,
+            timestamp: 1.5,
             channel: String::from("1"),
-            id: 150,
+            id: 336,
             is_rx: false,
             len: 0,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
-        assert_eq!(expected_frame, parse_ascii_line(remote_frame).unwrap());
+        assert_eq!(expected_frame, parse_ascii_line(remote_frame,AsciiBase::Hex).unwrap());
+    }
 
+    #[test]
+    // Check parsing when using hex base and dec base (16 vs. 10)
+    fn test_ascii_base_dec_vs_hex() {
+        let ascii_line = "0.400291 1  150       Rx   d 8 11 22 33 44 55 66 77 88";
+        let mut expected_frame = CanFrame {
+            timestamp: 0.400291,
+            channel: String::from("1"),
+            id: 150,
+            is_rx: true,
+            len: 8,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        fill_bytes(&mut expected_frame.data[0..8], 11, 11);
+        let result = parse_ascii_line(ascii_line,AsciiBase::Dec);
+        assert_eq!(expected_frame, result.unwrap());
+
+        fill_bytes(&mut expected_frame.data[0..8], 17, 17);
+        expected_frame.id = 336;
+        assert_eq!(expected_frame, parse_ascii_line(ascii_line,AsciiBase::Hex).unwrap());
     }
 
     #[test]
@@ -501,7 +533,7 @@ mod tests {
             len: 4,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
-        assert_eq!(expected_frame, parse_ascii_line(hex_id_line).unwrap());
+        assert_eq!(expected_frame, parse_ascii_line(hex_id_line, AsciiBase::Hex).unwrap());
     }
 
     #[test]
@@ -515,6 +547,6 @@ mod tests {
             len: 8,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
-        assert_eq!(expected_frame, parse_ascii_line(extended_id_line).unwrap());
+        assert_eq!(expected_frame, parse_ascii_line(extended_id_line, AsciiBase::Hex).unwrap());
     }
 }
