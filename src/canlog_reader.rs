@@ -53,9 +53,9 @@ impl Default for CanFrame {
 (1436509054.051025) vcan0 6DE#68FF147114D1
 */
 
-/// Turn ascii hex data into byte values
-pub fn ascii_hex_to_bytes(hex_str: &str) -> Result<[u8; DEFAULT_FRAME_PAYLOAD_LEN],ParseIntError> {
-//pub fn ascii_hex_to_bytes(hex_str: &str) -> Result<Vec<u8>,ParseIntError> {
+/// Turn hex data from candump log into byte values
+pub fn candump_hex_to_bytes(hex_str: &str) -> Result<[u8; DEFAULT_FRAME_PAYLOAD_LEN],ParseIntError> {
+//pub fn candump_hex_to_bytes(hex_str: &str) -> Result<Vec<u8>,ParseIntError> {
     let mut data_bytes = [0; DEFAULT_FRAME_PAYLOAD_LEN];
     //let mut data_bytes = Vec::new();
 
@@ -87,12 +87,22 @@ pub fn parse_candump_line(line: &str) -> anyhow::Result<CanFrame> { //TODO: Chan
     // CAN interface name
     let interface_name = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error parsing interface of {line}"))?;
     //ID
-    let id_and_data: Vec<_> = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error no id#data on {line}"))?
-        .split('#').collect();
+    let id_and_data_substr = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error no id#data on {line}"))?;
+    //"##" means it was CAN FD
+    let mut id_and_data: Vec<_> = id_and_data_substr.split("##").collect();
+    let is_fd = id_and_data.len() > 1;
+    // If there was no "##", it is standard CAN format ("#")
+    let mut start_idx = 1; //CAN FD format has 1 character of bitflags that we skip.
+    if !is_fd {
+        start_idx = 0; //Standard CAN does not have bitflags character
+        id_and_data = id_and_data_substr.split('#').collect();
+    }
+    /*let id_and_data: Vec<_> = line_splits.next().ok_or_else(|| anyhow::anyhow!("Error no id#data on {line}"))?
+        .split('#').collect();*/
     let id = u32::from_str_radix(id_and_data[0], 16)?;
-    let ascii_data = id_and_data[1];
-    let data = ascii_hex_to_bytes(id_and_data[1])?;
-    let data_len = (ascii_data.len() / 2) as u8;
+    let candump_data_payload = &id_and_data[1][start_idx..];
+    let data = candump_hex_to_bytes(candump_data_payload)?;
+    let data_len = (candump_data_payload.len() / 2) as u8;
     return Ok(CanFrame {
         timestamp: timestamp,
         channel: interface_name.to_owned(),
@@ -108,7 +118,8 @@ pub fn parse_candump_line(line: &str) -> anyhow::Result<CanFrame> { //TODO: Chan
 /// <Time> <Channel> <ID> <Dir> d <DLC> <D0> <D1>...<D8> <MessageFlags>
 /// 1.000000 1  100             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 100
 /// ```
-/// rocketcan::canlog_parser::parse_ascii_line(" (1436509053.850870) vcan0 1A0#9C20407F96EA167B");
+/// let test_string = "1.000000 1  100             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 100";
+/// assert!(rocketcan::canlog_reader::parse_ascii_line(test_string).is_ok());
 /// ```
 /// 
 /// CAN Remote Frame Event
@@ -127,12 +138,15 @@ pub fn parse_ascii_line(line: &str) -> anyhow::Result<CanFrame> {
         match i {
             0 => frame.timestamp = item.parse::<f64>()?,
             1 => frame.channel = item.to_owned(),
-            2 => frame.id = u32::from_str_radix(item, 10)?,
+            2 => frame.id = u32::from_str_radix(item, 16)?,
             3 => frame.is_rx = item == "Rx",
             4 => { //Normal frame, or remote frame?
-                //If it is a remote frame, end now
-                frame.len = 0;
-                return Ok(frame);
+                //If it is a remote frame, end now.
+                // No data, len is 0
+                if item == "r" {
+                    frame.len = 0;
+                    return Ok(frame);
+                }                
             }
             5 => { //Data length
                 frame.len = u8::from_str_radix(item, 10)?;
@@ -140,13 +154,14 @@ pub fn parse_ascii_line(line: &str) -> anyhow::Result<CanFrame> {
             },
             //Max datalen is 64
             6..70 => { //Filling data fields
-                let byte = u8::from_str_radix(item,16)?;
-                frame.data[i-data_start] = byte;
                 if i == data_end{
                     return Ok(frame);
                 } else if i > data_end{
                     return Err(anyhow::anyhow!("Parse ascii error"));
                 }
+
+                let byte = u8::from_str_radix(item,16)?;
+                frame.data[i-data_start] = byte;
             },
             _ => return Err(anyhow::anyhow!("Parse ascii error")),
         }
@@ -343,94 +358,163 @@ mod tests {
         println!("v1 len {}, v2 len {}, v0 len {}", v1.len(),v2.len(),v0.len());
     }
 
-
+    // candump / can-utils testing
     #[test]
-    fn test_ascii_hex_data() {
+    fn test_candump_hex_data() {
         let expected = vec![1u8, 2u8, 17u8, 18u8, 10u8, 11u8];
-        let result = ascii_hex_to_bytes("010211120A0B").unwrap();
+        let result = candump_hex_to_bytes("010211120A0B").unwrap();
         for i in 0..expected.len() {
             assert_eq!(expected[i], result[i]);
         }
     }
-}
 
-/* Canframe::from example
-And parsing of data section
-use std::num::ParseIntError;
-
-#[derive(Debug)]
-struct CanFrame {
-    timestamp: f64,
-    interface: String,
-    can_id: u32,
-    data: Vec<u8>,
-}
-
-impl CanFrame {
-    fn from_candump_line(line: &str) -> Result<CanFrame, String> {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-
-        // Ensure that the line has the expected number of parts
-        if parts.len() < 4 {
-            return Err("Invalid line format".to_string());
+    /// Write to the bytes starting with start value and incrementing by value_step each byte.
+    fn fill_bytes(bytes: &mut [u8], start_value: u8, value_step: u8) {
+        let mut value = start_value;
+        for byte in bytes.iter_mut() {
+            *byte = value;
+            value += value_step;
         }
+    }
 
-        // Parse the timestamp (f64)
-        let timestamp: f64 = parts[0]
-            .parse()
-            .map_err(|_| "Invalid timestamp format")?;
-
-        // Parse the interface (can0, can1, etc.)
-        let interface = parts[1].to_string();
-
-        // Parse the CAN ID (hexadecimal)
-        let can_id = u32::from_str_radix(parts[2], 16).map_err(|_| "Invalid CAN ID format")?;
-
-        // Parse the data length (in square brackets, e.g., [8])
-        let data_len_str = parts[3];
-        if !data_len_str.starts_with('[') || !data_len_str.ends_with(']') {
-            return Err("Invalid data length format".to_string());
+    /// Write to the bytes starting with start value and incrementing by value_step each byte.
+    /// Starts over every pattern_len steps
+    fn fill_bytes_repeating(bytes: &mut [u8], pattern_len: usize, start_value: u8, value_step: u8) {
+        let mut value = start_value;
+        for (i,byte) in bytes.iter_mut().enumerate() {
+            if i % pattern_len == 0 { // Reset every pattern_len steps
+                value = start_value;
+            }
+            *byte = value;
+            value += value_step;
         }
-        let data_len: usize = data_len_str[1..data_len_str.len() - 1]
-            .parse()
-            .map_err(|_| "Invalid data length value")?;
+    }
 
-        // Ensure that the number of data bytes matches the data length
-        if parts.len() != 4 + 1 { // 4 parts plus the data itself
-            return Err("Mismatch between data length and actual data bytes".to_string());
+    #[test]
+    // CAN 2.0 format test
+    fn test_candump_can_2_0() {
+        let candump_standard_id = "(1769227752.525818) vcan1 123#1122334455667788";
+        let mut expected_frame = CanFrame {
+            timestamp: 1769227752.525818,
+            channel: String::from("vcan1"),
+            id: 291,
+            is_rx: true,
+            len: 8,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        fill_bytes(&mut expected_frame.data[0..8],17,17);
+        assert_eq!(expected_frame, parse_candump_line(candump_standard_id).unwrap());
+
+        let extended_id_line = "(1769227752.525818) vcan1 1F334455#1122334455667788";
+        expected_frame.id = 523453525;
+        assert_eq!(expected_frame, parse_candump_line(extended_id_line).unwrap());
+    }
+
+    #[test]
+    // CAN FD format test
+    fn test_candump_can_fd() {
+        let fd_line = "(1769227442.503764) vcan1 123##400";
+        let mut expected_frame = CanFrame {
+            timestamp: 1769227442.503764,
+            channel: String::from("vcan1"),
+            id: 291,
+            is_rx: true,
+            len: 1,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        assert_eq!(expected_frame, parse_candump_line(fd_line).unwrap());
+
+        let fd_ext_id_line = "(1769227442.503764) vcan1 1F334455##41122334455667788";
+        expected_frame.len = 8;
+        expected_frame.id = 523453525;
+        fill_bytes(&mut expected_frame.data[0..8],17,17);
+        assert_eq!(expected_frame, parse_candump_line(fd_ext_id_line).unwrap());
+    }
+
+    // CAN FD varying data lengths
+    #[test]
+    fn test_candump_can_fd_lengths() {
+        let fd_32bytes_line = "(1769227729.672570) vcan1 1F334455##51122334455667788112233445566778811223344556677881122334455667788";
+        let mut expected_frame = CanFrame {
+            timestamp: 1769227729.672570,
+            channel: String::from("vcan1"),
+            id: 523453525,
+            is_rx: true,
+            len: 32,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        fill_bytes_repeating(&mut expected_frame.data[0..32],8,17,17);
+        assert_eq!(expected_frame, parse_candump_line(fd_32bytes_line).unwrap());
+
+        let fd_64bytes_line = "(1769227729.672570) vcan1 123##F11223344556677881122334455667788112233445566778811223344556677881122334455667788112233445566778811223344556677881122334455667788";
+        expected_frame.id = 291;
+        expected_frame.len = 64;
+        fill_bytes_repeating(&mut expected_frame.data[0..64],8,17,17);
+        assert_eq!(expected_frame, parse_candump_line(fd_64bytes_line).unwrap());
+    }
+
+    // Vector ascii format tests
+    #[test]
+    fn test_parse_ascii_line_error() {
+        //It returns error on candump line
+        let candump_line = "(1436509053.850870) vcan0 1A0#9C20407F96EA167B";
+        assert!(parse_ascii_line(candump_line).is_err());
+
+        //Base decimal test
+        /*let ascii_8 = "1.000000 1  100             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 100";
+        let mut expected_frame = CanFrame {
+            timestamp: 1.0,
+            channel: String::from("1"),
+            id: 100,
+            is_rx: false,
+            len: 8,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        for i in 1..=8 {
+            expected_frame.data[i-1] = i as u8;
         }
+        assert_eq!(expected_frame, parse_ascii_line(ascii_8).unwrap());*/
 
-        // Parse the data: this is a continuous hexadecimal string
-        let data_str = parts[4];
-        if data_str.len() != data_len * 2 {
-            return Err("Mismatch between data length and actual data byte count".to_string());
-        }
+        //Remote frame
+        let remote_frame = "1.000000 1  150             Tx   r";
+        let expected_frame = CanFrame {
+            timestamp: 1.0,
+            channel: String::from("1"),
+            id: 150,
+            is_rx: false,
+            len: 0,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        assert_eq!(expected_frame, parse_ascii_line(remote_frame).unwrap());
 
-        let data = data_str
-            .as_bytes()
-            .chunks(2)
-            .map(|chunk| {
-                u8::from_str_radix(std::str::from_utf8(chunk).unwrap(), 16)
-                    .map_err(|e| format!("Invalid byte in data: {}", e))
-            })
-            .collect::<Result<Vec<u8>, String>>()?;
+    }
 
-        Ok(CanFrame {
-            timestamp,
-            interface,
-            can_id,
-            data,
-        })
+    #[test]
+    fn test_parse_ascii_hex_base() {
+        //4 bytes
+        let hex_id_line = "0.217398 2  30B             Rx   d 4 00 00 00 00  Length = 236000 BitCount = 122 ID = 779";
+        let expected_frame = CanFrame {
+            timestamp: 0.217398,
+            channel: String::from("1"),
+            id: u32::from_str_radix("30B", 16).unwrap(),
+            is_rx: true,
+            len: 4,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        assert_eq!(expected_frame, parse_ascii_line(hex_id_line).unwrap());
+    }
+
+    #[test]
+    fn test_ascii_extended_id() {
+        let extended_id_line = "0.400291 1  1F334455x       Rx   d 8 01 02 03 04 05 06 07 08";
+        let mut expected_frame = CanFrame {
+            timestamp: 0.400291,
+            channel: String::from("1"),
+            id: 523453525,
+            is_rx: true,
+            len: 8,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        assert_eq!(expected_frame, parse_ascii_line(extended_id_line).unwrap());
     }
 }
-
-fn main() {
-    // Example usage
-    let log_line = "1582359202.874678  can0  123   [8]  0102030405060708";
-    match CanFrame::from_candump_line(log_line) {
-        Ok(frame) => println!("{:?}", frame),
-        Err(e) => eprintln!("Error parsing line: {}", e),
-    }
-}
-
- */
