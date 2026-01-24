@@ -147,7 +147,15 @@ pub fn parse_ascii_line(line: &str, base: AsciiBase) -> anyhow::Result<CanFrame>
         match i {
             0 => frame.timestamp = item.parse::<f64>()?,
             1 => frame.channel = item.to_owned(),
-            2 => frame.id = u32::from_str_radix(item, radix)?,
+            2 => frame.id = {
+                let is_extended = item.ends_with('x');
+                //Extended ids end with x, e.g. 1F334455x. Drop it to parse
+                if is_extended {
+                    u32::from_str_radix(&item[..item.len()-1], radix)?
+                } else {
+                    u32::from_str_radix(item, radix)?
+                }
+            },
             3 => frame.is_rx = item == "Rx",
             4 => { //Normal frame, or remote frame?
                 //If it is a remote frame, end now.
@@ -522,6 +530,25 @@ mod tests {
     }
 
     #[test]
+    fn test_ascii_extended_id() {
+        let extended_id_line = "0.400291 1  1F334455x       Rx   d 8 01 02 03 04 05 06 07 08";
+        let mut expected_frame = CanFrame {
+            timestamp: 0.400291,
+            channel: String::from("1"),
+            id: 523453525,
+            is_rx: true,
+            len: 8,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        fill_bytes(&mut expected_frame.data[0..8], 1, 1);
+        assert_eq!(expected_frame, parse_ascii_line(extended_id_line, AsciiBase::Hex).unwrap());
+
+        let extended_id_line = "0.400291 1  523453525x       Rx   d 8 01 02 03 04 05 06 07 08";
+        assert_eq!(expected_frame, parse_ascii_line(extended_id_line, AsciiBase::Dec).unwrap());
+    }
+
+    //TODO: REMOVE
+    #[test]
     fn test_parse_ascii_hex_base() {
         //4 bytes
         let hex_id_line = "0.217398 2  30B             Rx   d 4 00 00 00 00  Length = 236000 BitCount = 122 ID = 779";
@@ -536,17 +563,5 @@ mod tests {
         assert_eq!(expected_frame, parse_ascii_line(hex_id_line, AsciiBase::Hex).unwrap());
     }
 
-    #[test]
-    fn test_ascii_extended_id() {
-        let extended_id_line = "0.400291 1  1F334455x       Rx   d 8 01 02 03 04 05 06 07 08";
-        let mut expected_frame = CanFrame {
-            timestamp: 0.400291,
-            channel: String::from("1"),
-            id: 523453525,
-            is_rx: true,
-            len: 8,
-            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
-        };
-        assert_eq!(expected_frame, parse_ascii_line(extended_id_line, AsciiBase::Hex).unwrap());
-    }
+    
 }
