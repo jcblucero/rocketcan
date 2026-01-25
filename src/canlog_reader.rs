@@ -118,11 +118,23 @@ pub enum AsciiBase {
     Hex,
     Dec,
 }
+
+/// Get the CAN id
+fn parse_can_id(item: &str, radix: u32) -> Result<u32,ParseIntError> {
+    let is_extended = item.ends_with('x');
+    //Extended ids end with x, e.g. 1F334455x. Drop it to parse
+    if is_extended {
+        u32::from_str_radix(&item[..item.len()-1], radix)
+    } else {
+        u32::from_str_radix(item, radix)
+    }
+}
 /// Parse a line in ascii format from Vector tool
 /// 
 /// <Time> <Channel> <ID> <Dir> d <DLC> <D0> <D1>...<D8> <MessageFlags>
 /// 1.000000 1  100             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 100
 /// ```
+/// use rocketcan::canlog_reader::AsciiBase;
 /// let test_string = "1.5 1  150             Tx   d 8   1   2   3   4   5   6   7   8  Length = 0 BitCount = 64 ID = 150";
 /// assert!(rocketcan::canlog_reader::parse_ascii_line(test_string, AsciiBase::Dec).is_ok());
 /// ```
@@ -142,47 +154,65 @@ pub fn parse_ascii_line(line: &str, base: AsciiBase) -> anyhow::Result<CanFrame>
         AsciiBase::Dec => 10,
     };
 
-    //frame.timestamp = line_splits.next()?.parse::<f64>()?;
-    for (i,item) in line.split_whitespace().enumerate() {
-        match i {
-            0 => frame.timestamp = item.parse::<f64>()?,
-            1 => frame.channel = item.to_owned(),
-            2 => frame.id = {
-                let is_extended = item.ends_with('x');
-                //Extended ids end with x, e.g. 1F334455x. Drop it to parse
-                if is_extended {
-                    u32::from_str_radix(&item[..item.len()-1], radix)?
-                } else {
-                    u32::from_str_radix(item, radix)?
-                }
-            },
-            3 => frame.is_rx = item == "Rx",
-            4 => { //Normal frame, or remote frame?
-                //If it is a remote frame, end now.
-                // No data, len is 0
-                if item == "r" {
-                    frame.len = 0;
-                    return Ok(frame);
-                }                
-            }
-            5 => { //Data length
-                frame.len = u8::from_str_radix(item, 10)?;
-                data_end = data_start + frame.len as usize;
-            },
-            //Max datalen is 64
-            6..70 => { //Filling data fields
-                if i == data_end{
-                    return Ok(frame);
-                } else if i > data_end{
-                    return Err(anyhow::anyhow!("Parse ascii error"));
-                }
-
-                let byte = u8::from_str_radix(item,radix)?;
-                frame.data[i-data_start] = byte;
-            },
-            _ => return Err(anyhow::anyhow!("Parse ascii error")),
-        }
+    let splits: Vec<_> = line.split_whitespace().collect();
+    if splits.len() < 5 {
+        return Err(anyhow::anyhow!("Error parsing line: {line}"));
     }
+
+    if splits[1] == "CANFD" {
+        return parse_ascii_can_fd(splits, radix);
+    }
+    return parse_ascii_can_2_0(splits, radix);
+}
+
+/// Parse a CAN 2.0 line in vector ascii format
+fn parse_ascii_can_2_0(splits: Vec<&str>, radix: u32) -> anyhow::Result<CanFrame> {
+    let mut frame: CanFrame = Default::default();
+    frame.timestamp = splits[0].parse::<f64>()?;
+    frame.channel = splits[1].to_owned();
+    frame.id = parse_can_id(splits[2],radix)?;
+    frame.is_rx = splits[3] == "Rx";
+    //If it is a remote frame, end now.
+    if splits[4] == "r" {
+        frame.len = 0; //No data, len is 0
+        return Ok(frame);
+    }
+
+    if splits.len() < 6 {
+        return Err(anyhow::anyhow!("Error parsing CAN 2.0 {:?}",splits));
+    }
+    frame.len = u8::from_str_radix(splits[5], 10)?;
+    let rest_of_line = splits.get(6..).ok_or_else(|| anyhow::anyhow!("Error parsing CAN 2.0 {:?}",splits))?;
+    for (i, item) in rest_of_line.iter().enumerate() {
+        if i >= frame.len  as usize {
+            return Ok(frame);
+        }
+        frame.data[i] = u8::from_str_radix(item,radix)?;
+    }
+
+    Ok(frame)
+}
+
+/// Parse a CAN FD line in vector ascii format
+fn parse_ascii_can_fd(splits: Vec<&str>, radix: u32) -> anyhow::Result<CanFrame> {
+    let mut frame: CanFrame = Default::default();
+    frame.timestamp = splits[0].parse::<f64>()?;
+    //Skip 2nd index, it is CANFD
+    frame.channel = splits[2].to_owned();
+    frame.is_rx = splits[3] == "Rx";
+    frame.id = parse_can_id(splits[4],radix)?;
+    //No remote frame in FD?
+    let len_str = splits.get(8).ok_or_else(|| anyhow::anyhow!("Error parsing CAN FD datalen {:?}",splits))?;
+    frame.len = u8::from_str_radix(len_str, 10)?;
+
+    let rest_of_line = splits.get(9..).ok_or_else(|| anyhow::anyhow!("Error parsing CAN FD {:?}",splits))?;
+    for (i, item) in rest_of_line.iter().enumerate() {
+        if i >= frame.len  as usize {
+            return Ok(frame);
+        }
+        frame.data[i] = u8::from_str_radix(item,radix)?;
+    }
+
     Ok(frame)
 }
 
@@ -538,8 +568,40 @@ mod tests {
     }
 
     #[test]
+    //Vector ASCII CAN FD test of varying lengths
     fn test_ascii_can_fd() {
 
+        let fd_1_byte_line = "11.760087 CANFD   2 Rx        123                                   1 1 1  1 00        0    0     7000        0        0        0        0        0";
+        let mut expected_frame = CanFrame {
+            timestamp: 11.760087,
+            channel: String::from("2"),
+            id: u32::from_str_radix("123", 16).unwrap(),
+            is_rx: true,
+            len: 1,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        assert_eq!(expected_frame, parse_ascii_line(fd_1_byte_line, AsciiBase::Hex).unwrap());
+
+        let fd_32_byte_line = "287.168806 CANFD   2 Rx   1F334455x                                   1 0 d 32 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88        0    0     3000        0        0        0        0        0";
+        let mut expected_frame = CanFrame {
+            timestamp: 287.168806,
+            channel: String::from("2"),
+            id: 523453525,
+            is_rx: true,
+            len: 32,
+            data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
+        };
+        fill_bytes_repeating(&mut expected_frame.data[0..(expected_frame.len as usize)], 8, 17, 17);
+        assert_eq!(expected_frame, parse_ascii_line(fd_32_byte_line, AsciiBase::Hex).unwrap());
+
+        
+
+        let fd_64_byte_line = "128.997961 CANFD   1 Rx   1F334455x                                  0 0 f 64 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88 11 22 33 44 55 66 77 88   130000  130     1000 0 0 0 0 0";
+        expected_frame.timestamp = 128.997961;
+        expected_frame.channel = String::from("1");
+        expected_frame.len = 64;
+        fill_bytes_repeating(&mut expected_frame.data[0..(expected_frame.len as usize)], 8, 17, 17);
+        assert_eq!(expected_frame, parse_ascii_line(fd_64_byte_line, AsciiBase::Hex).unwrap());
     }
 
     
