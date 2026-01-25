@@ -225,10 +225,18 @@ pub fn frame_to_candump_line(frame: CanFrame) -> String {
     return s;
 }
 
+
+enum CanLogFormat {
+    /// Format output by logs of can-utils candump application. End in .log.
+    Candump,
+    /// Format output by Vector sw tools. End in .asc.
+    VectorAscii,
+}
 pub struct CanLogParser/*<R>*/{
     //reader: R,
     reader: Box<dyn BufRead>,
     buf: String, // local buf to re-use so we don't keep allocating
+    format: CanLogFormat,
 }
 
 impl CanLogParser {
@@ -236,9 +244,22 @@ impl CanLogParser {
     /// Create CanLogParser from a file path
     pub fn from_file(path: &std::path::Path) -> io::Result<Self> {
         let file = File::open(path)?;
+        let extension = path.extension().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidFilename, "CAN Log file extension not supported for {path}")
+        })?;
+        let format;
+        println!("{:?}",extension);
+        if extension == "log" {
+            format =  CanLogFormat::Candump;
+        } else if extension == "asc" {
+            format = CanLogFormat::VectorAscii;
+        } else {
+            return Err(io::Error::new(io::ErrorKind::InvalidFilename, "CAN Log file extension not supported for {path}"));
+        }
         Ok( CanLogParser { 
             reader: Box::new(BufReader::new(file)), 
             buf: String::new(),
+            format: format,
         })
     }
 
@@ -247,6 +268,7 @@ impl CanLogParser {
         CanLogParser { 
             reader: Box::new(Cursor::new(bytes)), 
             buf: String::new(),
+            format: CanLogFormat::Candump,
         }
     }
 
@@ -255,6 +277,7 @@ impl CanLogParser {
         Self {
             reader: Box::new(reader),
             buf: String::new(),
+            format: CanLogFormat::Candump,
         }
     }
 
@@ -265,17 +288,41 @@ impl Iterator for CanLogParser {
 
     fn next(&mut self) -> Option<Self::Item>{
         self.buf.clear();
-        match self.reader.read_line(&mut self.buf) {
-            Ok(0) => None,
-            Ok(_) => {
-                //Some(String::from(self.buf.trim_end()))
-                //Some(parse_candump_line(&self.buf))
-                //TODO: Should this cause an error? 
-                //Consider returning Option<Result<CanFrame>> to indicate parse failure on line to user
-                parse_candump_line(&self.buf).ok() //throw away parsing failures here...
+        match self.format {
+            CanLogFormat::Candump => {
+                match self.reader.read_line(&mut self.buf) {
+                    Ok(0) => None,
+                    Ok(_) => {
+                        //TODO: Should this cause an error? 
+                        //Consider returning Option<Result<CanFrame>> to indicate parse failure on line to user
+                        parse_candump_line(&self.buf).ok() //throw away parsing failures here...
+                    }
+                    Err(_) => None,
+                }
+            },
+            CanLogFormat::VectorAscii => {
+                // Vector ASCII has varying begin/end blocks
+                // And could contain unsupported frames in the middle (error, ETH, Flexray)
+                // Read until either EOF,error, or we get a CAN frame
+                loop {
+                    self.buf.clear();
+                    match self.reader.read_line(&mut self.buf) {
+                        Ok(0) => {
+                            return None;
+                        },
+                        Ok(_) => {
+                            if let Ok(frame) = parse_ascii_line(&self.buf, AsciiBase::Hex) {
+                                return Some(frame);
+                            }
+                        },
+                        Err(_) => {
+                            return None;
+                        },
+                    }
+                }
             }
-            Err(_) => None,
         }
+        
     }
 }
 pub struct CanLogReader<T>
@@ -603,6 +650,61 @@ mod tests {
         fill_bytes_repeating(&mut expected_frame.data[0..(expected_frame.len as usize)], 8, 17, 17);
         assert_eq!(expected_frame, parse_ascii_line(fd_64_byte_line, AsciiBase::Hex).unwrap());
     }
+ 
+    // Return true if two values are within some epsilon of each other.
+    fn approx_equal(v1: f64, v2: f64, eps: f64) -> bool {
+        if v1 > v2 {
+            return v1-v2 <= eps;
+        } else {
+            return v2-v1 <= eps;
+        }
+    }
+    // Assert comparable fields of ascii vs. candump frame are equal
+    fn compare_candump_ascii_frames(candump_frame: &CanFrame, ascii_frame: &CanFrame, candump_time_start: f64) {
+        // ascii logs change time to start from 0, manually offset candump frame to match
+        //assert_eq!(candump_frame.timestamp - candump_time_start, ascii_frame.timestamp);
+        let microseconds_100 = 0.0001;
+        assert!(approx_equal(candump_frame.timestamp-candump_time_start,ascii_frame.timestamp,microseconds_100));
+        // ascii logs change channel name
+        //assert_eq!(candump_frame.channel, ascii_frame.channel);
+        assert_eq!(candump_frame.id, ascii_frame.id);
+        assert_eq!(candump_frame.is_rx, ascii_frame.is_rx);
+        assert_eq!(candump_frame.len, ascii_frame.len);
+        assert_eq!(candump_frame.data, ascii_frame.data);
+    }
+    // CAN Integration Tests of log files
+    #[test]
+    pub fn can_2_0_log_compare_test() {
+        let candump_filename = "./candump.log";
+        let reader = CanLogParser::from_file(std::path::Path::new(candump_filename)).unwrap();
+        let candump_frames: Vec<_> = reader.collect();
 
+        let ascii_filename = "./candump.asc";
+        let ascii_reader = CanLogParser::from_file(std::path::Path::new(ascii_filename)).unwrap();
+        let ascii_frames: Vec<_> = ascii_reader.collect();
+
+        assert_eq!(candump_frames.len(),ascii_frames.len());
+        let candump_time_start = candump_frames.get(0);
+        for (candump_frame,ascii_frame) in candump_frames.iter().zip(ascii_frames.iter()) {
+            compare_candump_ascii_frames(candump_frame,ascii_frame,candump_time_start.unwrap().timestamp);
+        }
+    }
+
+    #[test]
+    pub fn can_fd_log_compare_test() {
+        let candump_filename = "./candump-fd-test.log";
+        let reader = CanLogParser::from_file(std::path::Path::new(candump_filename)).unwrap();
+        let candump_frames: Vec<_> = reader.collect();
+
+        let ascii_filename = "./vector-fd-test.asc";
+        let ascii_reader = CanLogParser::from_file(std::path::Path::new(ascii_filename)).unwrap();
+        let ascii_frames: Vec<_> = ascii_reader.collect();
+
+        assert_eq!(candump_frames.len(),ascii_frames.len());
+        let candump_time_start = candump_frames.get(0);
+        for (candump_frame,ascii_frame) in candump_frames.iter().zip(ascii_frames.iter()) {
+            compare_candump_ascii_frames(candump_frame,ascii_frame,candump_time_start.unwrap().timestamp);
+        }
+    }
     
 }
