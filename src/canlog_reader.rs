@@ -276,7 +276,7 @@ impl CanLogParser {
         })?;
         let format;
         let mut ascii_base= None;
-        println!("{:?}",extension);
+        //println!("{:?}",extension);
         if extension == "log" {
             format =  CanLogFormat::Candump;
         } else if extension == "asc" {
@@ -284,7 +284,7 @@ impl CanLogParser {
             format = CanLogFormat::VectorAscii;
             let reader = BufReader::new(file2);
             if let Ok(base) = get_ascii_base(reader) {
-                println!("Base {:?}",base);
+                //println!("Base {:?}",base);
                 ascii_base = Some(base);
             } else {
                 return Err(io::Error::new(io::ErrorKind::InvalidInput,"Invalid ascii header"));
@@ -365,11 +365,11 @@ impl Iterator for CanLogParser {
                     self.buf.clear();
                     match self.reader.read_line(&mut self.buf) {
                         Ok(0) => {
-                            dbg!(&self.buf);
+                            //dbg!(&self.buf);
                             return None;
                         },
                         Ok(_) => {
-                            dbg!(&self.buf);
+                            //dbg!(&self.buf);
                             if let Ok(frame) = parse_ascii_line(&self.buf, self.ascii_base.as_ref().cloned().unwrap()) {
                                 return Some(frame);
                             }
