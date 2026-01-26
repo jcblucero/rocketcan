@@ -113,13 +113,14 @@ pub fn parse_candump_line(line: &str) -> anyhow::Result<CanFrame> { //TODO: Chan
     });
 }
 
-/// Base format for Vector ascii parsing. Hex or Decimal (base 10).
+/// Base format for Vector ascii parsing. Hex (base 16) or Decimal (base 10).
+#[derive(PartialEq,Debug,Clone)]
 pub enum AsciiBase {
     Hex,
     Dec,
 }
 
-/// Get the CAN id
+/// Get the CAN id from a Vector ASCII log
 fn parse_can_id(item: &str, radix: u32) -> Result<u32,ParseIntError> {
     let is_extended = item.ends_with('x');
     //Extended ids end with x, e.g. 1F334455x. Drop it to parse
@@ -127,6 +128,30 @@ fn parse_can_id(item: &str, radix: u32) -> Result<u32,ParseIntError> {
         u32::from_str_radix(&item[..item.len()-1], radix)
     } else {
         u32::from_str_radix(item, radix)
+    }
+}
+
+/// Get the base (radix) from the Vector ascii header
+fn get_ascii_base(mut reader: impl BufRead) -> anyhow::Result<AsciiBase> {
+    /* Ascii Header Format
+        date Fri Jan 23 23:04:02 2026
+        base hex  timestamps absolute
+        no internal events logged
+     */
+    let mut date_header = String::new();
+    let _read_size = reader.read_line(&mut date_header)?;
+
+    let mut base_line = String::new();
+    let radix_str = {
+        let _ = reader.read_line(&mut base_line)?;
+        base_line.split_whitespace().nth(1).ok_or_else(|| anyhow::anyhow!("could not parse ascii header 2nd line"))?
+    };
+    if radix_str == "hex" {
+        Ok(AsciiBase::Hex)
+    } else if radix_str == "dec" {
+        Ok(AsciiBase::Dec)
+    } else {
+        Err(anyhow::anyhow!("Ascii base {radix_str} not one of [hex,dec]"))
     }
 }
 /// Parse a line in ascii format from Vector tool
@@ -225,7 +250,7 @@ pub fn frame_to_candump_line(frame: CanFrame) -> String {
     return s;
 }
 
-
+#[derive(PartialEq)]
 enum CanLogFormat {
     /// Format output by logs of can-utils candump application. End in .log.
     Candump,
@@ -237,6 +262,7 @@ pub struct CanLogParser/*<R>*/{
     reader: Box<dyn BufRead>,
     buf: String, // local buf to re-use so we don't keep allocating
     format: CanLogFormat,
+    ascii_base: Option<AsciiBase>, // For vector ascii only
 }
 
 impl CanLogParser {
@@ -244,42 +270,73 @@ impl CanLogParser {
     /// Create CanLogParser from a file path
     pub fn from_file(path: &std::path::Path) -> io::Result<Self> {
         let file = File::open(path)?;
+        
         let extension = path.extension().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidFilename, "CAN Log file extension not supported for {path}")
         })?;
         let format;
+        let mut ascii_base= None;
         println!("{:?}",extension);
         if extension == "log" {
             format =  CanLogFormat::Candump;
         } else if extension == "asc" {
+            let file2 = File::open(path)?;
             format = CanLogFormat::VectorAscii;
+            let reader = BufReader::new(file2);
+            if let Ok(base) = get_ascii_base(reader) {
+                println!("Base {:?}",base);
+                ascii_base = Some(base);
+            } else {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput,"Invalid ascii header"));
+            }
+            ascii_base = Some(AsciiBase::Hex);
         } else {
             return Err(io::Error::new(io::ErrorKind::InvalidFilename, "CAN Log file extension not supported for {path}"));
         }
+        
         Ok( CanLogParser { 
             reader: Box::new(BufReader::new(file)), 
             buf: String::new(),
             format: format,
+            ascii_base: ascii_base
         })
+        
     }
 
     /// Create CanLogParser from raw bytes
     pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        let cursor = Cursor::new(&bytes);
+        let reader = BufReader::new(cursor);
+        let mut ascii_base = None;
+        let mut format = CanLogFormat::Candump;
+        if let Ok(base) = get_ascii_base(reader) {
+            ascii_base = Some(base);
+            format = CanLogFormat::VectorAscii;
+        } else {
+            //TODO return error
+            println!("Error calling CanLogParser::from_bytes");
+            //return Err(io::Error::new(io::ErrorKind::InvalidInput,"Invalid ascii header"));
+        }
         CanLogParser { 
             reader: Box::new(Cursor::new(bytes)), 
             buf: String::new(),
-            format: CanLogFormat::Candump,
+            format: format,
+            ascii_base: ascii_base,
         }
     }
 
-    /// Create CanLogParser from any type that implements the BufRead trait
-    pub fn from_reader<R: BufRead + 'static>(reader: R) -> Self {
+    /*/// Create CanLogParser from any type that implements the BufRead trait
+    pub fn from_reader<R: BufRead + 'static>(reader: R, format: CanLogFormat) -> Self {
+        if format == CanLogFormat::VectorAscii {
+            panic!("Error CanLogParser::from_reader does not support VectorAscii");
+        }
         Self {
             reader: Box::new(reader),
             buf: String::new(),
-            format: CanLogFormat::Candump,
+            format: format,
+            ascii_base: None,
         }
-    }
+    }*/
 
 }
 
@@ -308,10 +365,12 @@ impl Iterator for CanLogParser {
                     self.buf.clear();
                     match self.reader.read_line(&mut self.buf) {
                         Ok(0) => {
+                            dbg!(&self.buf);
                             return None;
                         },
                         Ok(_) => {
-                            if let Ok(frame) = parse_ascii_line(&self.buf, AsciiBase::Hex) {
+                            dbg!(&self.buf);
+                            if let Ok(frame) = parse_ascii_line(&self.buf, self.ascii_base.as_ref().cloned().unwrap()) {
                                 return Some(frame);
                             }
                         },
@@ -363,7 +422,7 @@ impl CanLogReader<LinesFileBufReader> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Seek;
+    use std::io::{Read, Seek};
 
     use super::*;
     /*#[test]
@@ -547,7 +606,19 @@ mod tests {
         assert_eq!(expected_frame, parse_candump_line(fd_64bytes_line).unwrap());
     }
 
-    // Vector ascii format tests
+    //--------Vector ascii format tests-------------
+    #[test]
+    fn test_get_ascii_base() {
+        let hex_header = "date Fri Jan 23 23:04:02 2026\nbase hex  timestamps absolute\nno internal events logged";
+        let cursor = Cursor::new(hex_header);
+        let reader = BufReader::new(cursor);
+        assert_eq!(get_ascii_base(reader).unwrap(), AsciiBase::Hex);
+
+        let dec_header = "date Fri Jan 23 23:04:02 2026\nbase dec  timestamps absolute\nno internal events logged";
+        let cursor = Cursor::new(dec_header);
+        let reader = BufReader::new(cursor);
+        assert_eq!(get_ascii_base(reader).unwrap(), AsciiBase::Dec);
+    }
     #[test]
     fn test_parse_ascii_line_error() {
         //It returns error on candump line
@@ -688,6 +759,14 @@ mod tests {
         for (candump_frame,ascii_frame) in candump_frames.iter().zip(ascii_frames.iter()) {
             compare_candump_ascii_frames(candump_frame,ascii_frame,candump_time_start.unwrap().timestamp);
         }
+
+        // Test CanLogParser::from_bytes()
+        let mut bytes = Vec::new();
+        let t = File::open(ascii_filename).unwrap().read_to_end(&mut bytes).unwrap();
+        let frames_from_bytes: Vec<_> = CanLogParser::from_bytes(bytes).collect();
+        for (frame1, frame2) in ascii_frames.iter().zip(frames_from_bytes.iter()){
+            assert_eq!(frame1,frame2);
+        }
     }
 
     #[test]
@@ -696,7 +775,7 @@ mod tests {
         let reader = CanLogParser::from_file(std::path::Path::new(candump_filename)).unwrap();
         let candump_frames: Vec<_> = reader.collect();
 
-        let ascii_filename = "./vector-fd-test.asc";
+        let ascii_filename = "./v2asc-fd-test.asc";
         let ascii_reader = CanLogParser::from_file(std::path::Path::new(ascii_filename)).unwrap();
         let ascii_frames: Vec<_> = ascii_reader.collect();
 
