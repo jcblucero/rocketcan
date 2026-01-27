@@ -39,6 +39,7 @@ pub struct DecodedCanMessage {
     pub name: String,
     pub signals: Vec<String>,
     pub values: Vec<f64>,
+    pub units: Vec<String>,
 }
 
 impl fmt::Display for DecodedCanMessage {
@@ -71,9 +72,11 @@ impl fmt::Display for DecodedCanMessage {
 pub fn decode_message(can_frame: &CanFrame, message_spec: &can_dbc::Message) -> DecodedCanMessage {
     let mut values = Vec::with_capacity(message_spec.signals().len());
     let mut names = Vec::with_capacity(message_spec.signals().len());
+    let mut units = Vec::with_capacity(message_spec.signals().len());
     for signal_spec in message_spec.signals() {
         names.push(signal_spec.name().clone());
         values.push(decode_signal(&can_frame, &signal_spec));
+        units.push(signal_spec.unit().to_owned());
     }
 
     return DecodedCanMessage {
@@ -81,6 +84,7 @@ pub fn decode_message(can_frame: &CanFrame, message_spec: &can_dbc::Message) -> 
         name: message_spec.message_name().clone(),
         signals: names,
         values: values,
+        units: units,
     };
 }
 
