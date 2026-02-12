@@ -51,7 +51,11 @@ pub fn encode_message(
     message_id: u32,
 ) -> Result<CanFrame> {
     let mut frame = CanFrame::default();
-    frame.id = message_id;
+    //frame.id = message_id;
+    frame.id = match message_spec.message_id() {
+                can_dbc::MessageId::Standard(id) => *id as u32,
+                can_dbc::MessageId::Extended(id) => *id,
+            };
     frame.len = *message_spec.message_size() as u8;
 
     for (signal_name, physical_value) in signals {
@@ -200,6 +204,47 @@ mod tests {
                 signal_name, expected, decoded
             );
         }
+    }
+
+    #[test]
+    fn test_pack_signed_golden_sample() {
+        //Golden sample Message378910. 
+        /*
+        echo "(0.0) vcan0 00A#11223244FF017788" | python3 -m cantools decode signed.dbc
+            Message378910(
+            s7: 8,
+            s8big: -111,
+            s9: 25,
+            s8: -47,
+            s3big: -1,
+            s3: -1,
+            s10big: 239,
+            s7big: 8
+            )
+         */
+        //Expected: (0.0) vcan0 00A#11223244FF017788"
+        let expected_data = [0x11,0x22,0x32,0x44,0xFF,0x01,0x77,0x88];
+        let mut expected_frame = CanFrame {
+            id: 10,
+            len: 8,
+            ..Default::default()
+        };
+        for (i,byte) in expected_data.iter().enumerate() {
+            expected_frame.data[i] = *byte;
+        }
+        let dbc = can_decoder::load_dbc("signed.dbc").unwrap();
+        let signals = [
+            ("s7", 8.0),
+            ("s8big", -111.0),
+            ("s9", 25.0),
+            ("s8", -47.0),
+            ("s3big", -1.0),
+            ("s3", -1.0),
+            ("s10big", -273.0),
+            ("s7big", 8.0),];
+        let msg_spec = can_decoder::get_message_spec(&dbc, "Message378910").unwrap();
+        let encoded_frame = encode_message(msg_spec, &signals, 10).unwrap();
+        assert_eq!(expected_frame, encoded_frame);
     }
 
     #[test]
@@ -455,7 +500,7 @@ mod tests {
                 let value = layout.decode(&golden_frame, signal);
                 signal_values.push((signal.name(), value));
             }
-
+            
             let encoded = encode_message(msg, &signal_values, golden_frame.id).unwrap();
 
             // Verify each signal decodes to the same value from both frames

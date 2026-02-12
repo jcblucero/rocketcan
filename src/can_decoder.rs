@@ -580,4 +580,11 @@ Message378910(
     s3: -1,
     s10big: 239,
     s7big: 8
+
+echo "(0.0) vcan0 00A#11223244FF007788" | python3 -m cantools decode signed.dbc
+
+
+DUMPING TOOLS:
+python3 -m cantools dump signed.db
+
 */
