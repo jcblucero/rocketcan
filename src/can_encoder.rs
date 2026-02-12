@@ -135,13 +135,13 @@ mod tests {
     fn test_compute_raw_signed_negative() {
         // Temperature: factor=0.01, offset=250, signed 12-bit
         // physical=244.14 → raw = (244.14 - 250) / 0.01 = -586
-        // -586 as 12-bit two's complement = 4096 - 586 = 3510
+        // -586 as 12-bit two's complement = 4096 - 586 = 0xDB6
         let dbc = can_decoder::load_dbc("motohawk.dbc").unwrap();
         let msg = can_decoder::get_message_spec(&dbc, "ExampleMessage").unwrap();
         let signal = can_decoder::get_signal_spec(&msg, "Temperature").unwrap();
 
         let raw = compute_raw_value(244.14, signal);
-        assert_eq!(raw, 3511);
+        assert_eq!(raw, 0xDB6);
     }
 
     #[test]

@@ -139,7 +139,8 @@ mod tests {
     use std::arch::x86_64;
 
     use super::*;
-    use crate::can_decoder;
+    use crate::can_decoder::{self, get_message_spec};
+    use crate::can_encoder::encode_message;
     use crate::canlog_reader;
 
     #[test]
@@ -381,7 +382,7 @@ mod tests {
         let mut data = [0u8; 64];
 
         let temp = can_decoder::get_signal_spec(&msg, "Temperature").unwrap();
-        SignalLayout::from_spec(temp).pack(&mut data, 3510);
+        SignalLayout::from_spec(temp).pack(&mut data, 0xDB6);
 
         let radius = can_decoder::get_signal_spec(&msg, "AverageRadius").unwrap();
         SignalLayout::from_spec(radius).pack(&mut data, 18);
@@ -398,11 +399,10 @@ mod tests {
     #[test]
     fn test_pack_signed_signals_golden_bytes() {
         // Pack s64 (LE, 64-bit signed) raw value into zeroed frame.
-        // The raw bits of -8613302515775888879_i64 as u64 = 0x8877665F44332211
         //
         // Frame: 11223344FF667788
         // s64: start_bit=0, 64 bits, LE. extract gives all 64 bits as-is in LE order.
-        // raw = 0x8877665F44332211
+        // raw = 0x887766FF44332211
         let line = "(0.0) vcan0 002#11223344FF667788";
         let frame = canlog_reader::parse_candump_line(line).unwrap();
         let dbc = can_decoder::load_dbc("signed.dbc").unwrap();
@@ -411,7 +411,7 @@ mod tests {
         let layout = SignalLayout::from_spec(signal);
 
         let raw = layout.extract(&frame.data);
-        assert_eq!(0x8877665F44332211,raw);
+        assert_eq!(0x887766FF44332211,raw);
 
         // Pack into zeroed data and verify we get the original bytes back
         let mut data = [0u8; 64];
@@ -431,11 +431,14 @@ mod tests {
         let layout = SignalLayout::from_spec(signal);
 
         let raw = layout.extract(&frame.data);
+        assert_eq!(0x8000000000000000,raw);
 
         let mut data = [0u8; 64];
         layout.pack(&mut data, raw);
         assert_eq!(&data[..8], &frame.data[..8]);
     }
+
+    
 
     #[test]
     fn test_pack_clears_existing_bits() {
@@ -535,7 +538,7 @@ mod tests {
         let msg = can_decoder::get_message_spec(&dbc, "ExampleMessage").unwrap();
 
         let cases: &[(&str, u64, f64)] = &[
-            ("Temperature", 3510, 244.14),
+            ("Temperature", 0xDB6, 244.14), //signed 12 bit 0xDB6 = -586
             ("AverageRadius", 18, 1.8),
             ("Enable", 1, 1.0),
         ];
