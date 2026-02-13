@@ -1,5 +1,5 @@
 //use ablf::BlfFile;
-use rocketcan::{can_decoder, canlog_reader};
+use rocketcan::{can_decoder, canlog_reader,canlog_writer};
 use std::{fs::File, io::Write};
 fn main() {
     println!("Hello, world!");
@@ -73,7 +73,7 @@ fn main() {
         writeln!(
             output_file,
             "{}",
-            canlog_reader::frame_to_candump_line(can_frame)
+            canlog_writer::frame_to_candump_line(can_frame)
         )
         .unwrap();
         time += 0.1;

@@ -1,7 +1,9 @@
 pub mod can_decoder;
 pub mod can_encoder;
+pub mod canlog_writer;
 pub mod canlog_reader;
 pub mod signal_layout;
+
 
 pub use canlog_reader::CanFrame;
 

@@ -40,6 +40,15 @@ impl Default for CanFrame {
         }
     }
 }
+
+impl CanFrame {
+
+    /// Return default value of data array for CanFrame
+    /// All 0s
+    pub fn default_data() -> [u8;DEFAULT_FRAME_PAYLOAD_LEN] {
+        [0; DEFAULT_FRAME_PAYLOAD_LEN]
+    }
+}
 /*
 (1436509052.249713) vcan0 044#2A366C2BBA
 (1436509052.449847) vcan0 0F6#7ADFE07BD2
@@ -191,6 +200,8 @@ pub fn parse_ascii_line(line: &str, base: AsciiBase) -> anyhow::Result<CanFrame>
 }
 
 /// Parse a CAN 2.0 line in vector ascii format
+/// Example line:
+/// 1.601157 1  1A0             Rx   d 8 9C 20 40 7F 96 EA 16 7B Length = 225910 BitCount = 117 ID = 383
 fn parse_ascii_can_2_0(splits: Vec<&str>, radix: u32) -> anyhow::Result<CanFrame> {
     let mut frame: CanFrame = Default::default();
     frame.timestamp = splits[0].parse::<f64>()?;
@@ -219,6 +230,8 @@ fn parse_ascii_can_2_0(splits: Vec<&str>, radix: u32) -> anyhow::Result<CanFrame
 }
 
 /// Parse a CAN FD line in vector ascii format
+/// Example Line:
+/// 26.332849 CANFD   1 Rx        123                                   0 0 8  8 11 22 33 44 55 66 77 88   130000  130     1000 0 0 0 0 0
 fn parse_ascii_can_fd(splits: Vec<&str>, radix: u32) -> anyhow::Result<CanFrame> {
     let mut frame: CanFrame = Default::default();
     frame.timestamp = splits[0].parse::<f64>()?;
@@ -239,15 +252,6 @@ fn parse_ascii_can_fd(splits: Vec<&str>, radix: u32) -> anyhow::Result<CanFrame>
     }
 
     Ok(frame)
-}
-
-/// Convert a CanFrame to an ascii candump line
-pub fn frame_to_candump_line(frame: CanFrame) -> String {
-    let mut s = format!("({}) vcan0 {:X}#", frame.timestamp, frame.id);
-    for i in 0..frame.len as usize {
-        write!(s, "{:02X}", frame.data[i]).unwrap();
-    }
-    return s;
 }
 
 #[derive(PartialEq)]
@@ -762,7 +766,8 @@ mod tests {
 
         // Test CanLogParser::from_bytes()
         let mut bytes = Vec::new();
-        let t = File::open(ascii_filename).unwrap().read_to_end(&mut bytes).unwrap();
+        let read_size = File::open(ascii_filename).unwrap().read_to_end(&mut bytes).unwrap();
+        assert!(read_size > 1);
         let frames_from_bytes: Vec<_> = CanLogParser::from_bytes(bytes).collect();
         for (frame1, frame2) in ascii_frames.iter().zip(frames_from_bytes.iter()){
             assert_eq!(frame1,frame2);
