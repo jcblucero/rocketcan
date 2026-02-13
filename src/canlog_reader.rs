@@ -19,6 +19,8 @@ pub struct CanFrame {
     // Was the data received? True for receive, false for transmitted.
     // Default is True(receive) if not specified in the log
     pub is_rx: bool,
+    // True if CAN FD frame
+    pub is_fd: bool,
     // Data Length Code (DLC), 0 to 8 for CAN, 0 to 64 for CAN FD
     pub len: u8,
     // Payload data, can store up to 64 bytes for CAN FD, 8 bytes for standard CAN
@@ -35,6 +37,7 @@ impl Default for CanFrame {
             channel: String::new(),
             id: 0,
             is_rx: false,
+            is_fd: false,
             len: 0,
             data:[0; DEFAULT_FRAME_PAYLOAD_LEN], 
         }
@@ -81,7 +84,8 @@ pub fn candump_hex_to_bytes(hex_str: &str) -> Result<[u8; DEFAULT_FRAME_PAYLOAD_
 }
 
 /// Parse a line in candump format
-/// (1436509053.850870) vcan0 1A0#9C20407F96EA167B
+/// CAN 2.0: (1436509053.850870) vcan0 1A0#9C20407F96EA167B
+/// CAN FD: (1769227468.836613) vcan1 123##41122334455667788
 /// ```
 /// rocketcan::canlog_reader::parse_candump_line(" (1436509053.850870) vcan0 1A0#9C20407F96EA167B");
 /// ```
@@ -117,6 +121,7 @@ pub fn parse_candump_line(line: &str) -> anyhow::Result<CanFrame> { //TODO: Chan
         channel: interface_name.to_owned(),
         id: id,
         is_rx: true, //Candump doesn't specify, default is true.
+        is_fd: is_fd,
         len: data_len,
         data: data,
     });
@@ -234,8 +239,9 @@ fn parse_ascii_can_2_0(splits: Vec<&str>, radix: u32) -> anyhow::Result<CanFrame
 /// 26.332849 CANFD   1 Rx        123                                   0 0 8  8 11 22 33 44 55 66 77 88   130000  130     1000 0 0 0 0 0
 fn parse_ascii_can_fd(splits: Vec<&str>, radix: u32) -> anyhow::Result<CanFrame> {
     let mut frame: CanFrame = Default::default();
-    frame.timestamp = splits[0].parse::<f64>()?;
+        frame.timestamp = splits[0].parse::<f64>()?;
     //Skip 2nd index, it is CANFD
+    frame.is_fd = true;
     frame.channel = splits[2].to_owned();
     frame.is_rx = splits[3] == "Rx";
     frame.id = parse_can_id(splits[4],radix)?;
@@ -556,6 +562,7 @@ mod tests {
             channel: String::from("vcan1"),
             id: 291,
             is_rx: true,
+            is_fd: false,
             len: 8,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
@@ -576,6 +583,7 @@ mod tests {
             channel: String::from("vcan1"),
             id: 291,
             is_rx: true,
+            is_fd: true,
             len: 1,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
@@ -597,6 +605,7 @@ mod tests {
             channel: String::from("vcan1"),
             id: 523453525,
             is_rx: true,
+            is_fd: true,
             len: 32,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
@@ -639,6 +648,7 @@ mod tests {
             channel: String::from("1"),
             id: 336,
             is_rx: false,
+            is_fd: false,
             len: 0,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
@@ -655,6 +665,7 @@ mod tests {
             channel: String::from("1"),
             id: 150,
             is_rx: true,
+            is_fd: false,
             len: 8,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
@@ -679,6 +690,7 @@ mod tests {
             channel: String::from("1"),
             id: 523453525,
             is_rx: true,
+            is_fd: false,
             len: 8,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
@@ -699,6 +711,7 @@ mod tests {
             channel: String::from("2"),
             id: u32::from_str_radix("123", 16).unwrap(),
             is_rx: true,
+            is_fd: true,
             len: 1,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };
@@ -710,6 +723,7 @@ mod tests {
             channel: String::from("2"),
             id: 523453525,
             is_rx: true,
+            is_fd: true,
             len: 32,
             data: [0;DEFAULT_FRAME_PAYLOAD_LEN],
         };

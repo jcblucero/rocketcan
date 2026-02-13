@@ -1,3 +1,8 @@
+/*!
+ * can_decoder includes functions to turn CAN frames into decoded can messages (signals).
+ * CanFrame -> DecodedCanMessage
+ */
+
 use crate::canlog_reader::CanFrame;
 use can_dbc::DBC;
 use rand::prelude::*;

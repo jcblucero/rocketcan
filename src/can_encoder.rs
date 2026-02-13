@@ -1,3 +1,10 @@
+/*!
+ * can_encoder includes functions to turn CAN messages (signals + values) into CanFrames
+ * that can be sent over the wire (or general output).
+ * DecodedCanMessage -> CanFrame
+ */
+
+
 use anyhow::{anyhow, Result};
 
 use crate::can_decoder;

@@ -1,3 +1,7 @@
+/*!
+ * Defines the layout in bits of a signal so that it can be reused to pack/unpack into bytes
+ */
+
 use crate::canlog_reader::CanFrame;
 
 /// One contiguous span of bits within a single byte of the CAN frame data.
