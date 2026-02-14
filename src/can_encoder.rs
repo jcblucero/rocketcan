@@ -54,8 +54,7 @@ pub fn compute_raw_value(physical: f64, spec: &can_dbc::Signal) -> u64 {
 /// Returns an error if any signal name is not found in the message spec.
 pub fn encode_message(
     message_spec: &can_dbc::Message,
-    signals: &[(&str, f64)],
-    message_id: u32,
+    signals: &[(&str, f64)]
 ) -> Result<CanFrame> {
     let mut frame = CanFrame::default();
     //frame.id = message_id;
@@ -191,7 +190,7 @@ mod tests {
             ("Enable", 1.0),
         ];
 
-        let frame = encode_message(msg, signals, 0x1F0).unwrap();
+        let frame = encode_message(msg, signals).unwrap();
 
         assert_eq!(frame.id, 0x1F0);
         assert_eq!(frame.len, 8);
@@ -250,7 +249,7 @@ mod tests {
             ("s10big", -273.0),
             ("s7big", 8.0),];
         let msg_spec = can_decoder::get_message_spec(&dbc, "Message378910").unwrap();
-        let encoded_frame = encode_message(msg_spec, &signals, 10).unwrap();
+        let encoded_frame = encode_message(msg_spec, &signals).unwrap();
         assert_eq!(expected_frame, encoded_frame);
     }
 
@@ -262,8 +261,7 @@ mod tests {
 
         let frame = encode_message(
             msg,
-            &[("AverageRadius", 1.8), ("Enable", 1.0)],
-            0x1F0,
+            &[("AverageRadius", 1.8), ("Enable", 1.0)]
         )
         .unwrap();
 
@@ -291,7 +289,7 @@ mod tests {
         let dbc = can_decoder::load_dbc("motohawk.dbc").unwrap();
         let msg = can_decoder::get_message_spec(&dbc, "ExampleMessage").unwrap();
 
-        let result = encode_message(msg, &[("NonExistent", 42.0)], 0x1F0);
+        let result = encode_message(msg, &[("NonExistent", 42.0)]);
         assert!(result.is_err());
     }
 
@@ -310,7 +308,7 @@ mod tests {
             ("Enable", 1.0),
         ];
 
-        let frame = encode_message(msg, signals, 0x1F0).unwrap();
+        let frame = encode_message(msg, signals).unwrap();
 
         // Decode each signal and verify it matches the original physical value
         for (signal_name, expected) in signals {
@@ -347,7 +345,7 @@ mod tests {
 
         for (msg_name, msg_id, signal_name, physical) in cases {
             let msg = can_decoder::get_message_spec(&dbc, msg_name).unwrap();
-            let frame = encode_message(msg, &[(signal_name, *physical)], *msg_id).unwrap();
+            let frame = encode_message(msg, &[(signal_name, *physical)]).unwrap();
 
             let spec = can_decoder::get_signal_spec(&msg, signal_name).unwrap();
             let layout = SignalLayout::from_spec(spec);
@@ -376,7 +374,7 @@ mod tests {
             ("Enable", 1.0),
         ];
 
-        let frame = encode_message(msg, signals, 0x1F0).unwrap();
+        let frame = encode_message(msg, signals).unwrap();
 
         for (signal_name, expected) in signals {
             let spec = can_decoder::get_signal_spec(&msg, signal_name).unwrap();
@@ -404,8 +402,7 @@ mod tests {
                 ("Temperature", 244.14),
                 ("AverageRadius", 1.8),
                 ("Enable", 1.0),
-            ],
-            0x1F0,
+            ]
         )
         .unwrap();
 
@@ -460,7 +457,7 @@ mod tests {
         }
 
         // Re-encode from the decoded physical values
-        let encoded = encode_message(msg, &signal_values, 0x1F0).unwrap();
+        let encoded = encode_message(msg, &signal_values).unwrap();
 
         // Decode from the re-encoded frame and verify signal values match
         for signal in msg.signals() {
@@ -508,7 +505,7 @@ mod tests {
                 signal_values.push((signal.name(), value));
             }
             
-            let encoded = encode_message(msg, &signal_values, golden_frame.id).unwrap();
+            let encoded = encode_message(msg, &signal_values).unwrap();
 
             // Verify each signal decodes to the same value from both frames
             for signal in msg.signals() {

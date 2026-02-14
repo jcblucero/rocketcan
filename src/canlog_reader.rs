@@ -38,7 +38,7 @@ impl Default for CanFrame {
             id: 0,
             is_rx: false,
             is_fd: false,
-            len: 0,
+            len: 8,
             data:[0; DEFAULT_FRAME_PAYLOAD_LEN], 
         }
     }

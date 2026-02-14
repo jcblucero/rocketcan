@@ -1,6 +1,9 @@
+use can_dbc::DBC;
+use ::rocketcan::SignalSeries;
 //use ablf::BlfFile;
-use rocketcan::{can_decoder, canlog_reader,canlog_writer};
+use rocketcan::{can_decoder, can_encoder, canlog_reader, canlog_writer::{self, CandumpWriter}};
 use std::{fs::File, io::Write};
+use rocketcan::series_builder;
 fn main() {
     println!("Hello, world!");
     println!("{:?}", rocketcan::create_saw_signal(1, 10));
@@ -73,7 +76,7 @@ fn main() {
         writeln!(
             output_file,
             "{}",
-            canlog_writer::frame_to_candump_line(can_frame)
+            canlog_writer::frame_to_candump_line(&can_frame)
         )
         .unwrap();
         time += 0.1;
@@ -92,4 +95,44 @@ fn main() {
 
     //let filename = "~/rust_projects/aphryx-canx-nissan-leaf/demo_meet_200k.log";
     //or line in
+    let out_file= "generated.log";
+    gen_demo_file(out_file);
+}
+
+fn gen_demo_file(path: &str) {
+    let end_time = 60;
+    let file = File::create(path).unwrap();
+
+    let mut candump_writer = CandumpWriter::from_writer(file);
+    
+    //Get period of message
+    let dbc_path = "can_samples/aphryx-canx-nissan-leaf/nissan_leaf_2018.dbc";
+    let dbc = rocketcan::can_decoder::load_dbc(dbc_path).unwrap();
+    /*
+    STEER_ANGLE_SENSOR(
+        STEER_ANGLE: -22.1,
+        STEER_ANGLE_RATE: 0,
+        SET_ME_X07: 7,
+        COUNTER: 2
+    )   
+     */
+    
+    let message_name = "STEER_ANGLE_SENSOR";
+    let msg_spec = can_decoder::get_message_spec(&dbc, message_name).unwrap();
+    let cycle_time = 0.01; //10ms in sec
+    let mut time = 0.0;
+    let mut frame = canlog_reader::CanFrame::default();
+
+    while time <= 60.0 {
+        //Modifying frame
+        frame.timestamp = time;
+        //can_encoder::encode_message(msg_spec, signals)
+
+        //Writing out
+        candump_writer.write(&frame).unwrap();
+
+        //Loop iteration step
+        time += cycle_time;
+    }
+    candump_writer.flush().unwrap();
 }

@@ -8,3 +8,4 @@ rand = "0.9.1"
 can-dbc = "6.0.0"
 getrandom = { version = "0.3.3", features = ["wasm_js"] }
 anyhow = "1.0.100"
+tempfile = "3.25.0"
