@@ -16,7 +16,7 @@ pub fn frame_to_candump_line(frame: &CanFrame) -> String {
     //Timestamp: 6 decimal digits (to microsecond)
     //Channel: full string
     //Frame ID: in hex
-    //Data: in hex with leading 0
+    //Data: in hex with leading 0 if needed
     let mut s = if frame.is_fd{ 
         //CAN FD format has ##<flags>
         /* Flags are 
@@ -26,9 +26,9 @@ pub fn frame_to_candump_line(frame: &CanFrame) -> String {
         Flags = 3 (CANFD_ESI | CANFD_BRS */
         // We ignore these flags and hardcode to 0 as they are hardware level details
         // here we are writing to file, not hardware device.
-        format!("({:.6}) {} {:X}##0", frame.timestamp, frame.channel, frame.id)
+        format!("({:.6}) {} {:03X}##0", frame.timestamp, frame.channel, frame.id)
     } else {
-        format!("({:.6}) {} {:X}#", frame.timestamp, frame.channel, frame.id)
+        format!("({:.6}) {} {:03X}#", frame.timestamp, frame.channel, frame.id)
     };
     for i in 0..frame.len as usize {
         write!(s, "{:02X}", frame.data[i]).unwrap();
@@ -126,6 +126,14 @@ mod tests {
     fn test_frame_to_candump_fd_line() {
         //Roundtrip a candump CAN FD line: Candump Line -> CanFrame -> Candump line
         let expected_line = "(1769227442.503764) vcan1 1F334455##01122334455667788";
+        let input_frame = canlog_reader::parse_candump_line(expected_line).unwrap();
+        assert_eq!(frame_to_candump_line(&input_frame), expected_line);
+    }
+
+    #[test]
+    fn test_padding_id() {
+        //TODO: Test extended ID padding
+        let expected_line = "(1579876762.059466) slcan0 002#BE0000079B";
         let input_frame = canlog_reader::parse_candump_line(expected_line).unwrap();
         assert_eq!(frame_to_candump_line(&input_frame), expected_line);
     }

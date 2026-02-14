@@ -34,7 +34,7 @@ impl Default for CanFrame {
         CanFrame {
             // Use the array initialization syntax [x; N]
             timestamp: 0.0,
-            channel: String::new(),
+            channel: String::from("none"),
             id: 0,
             is_rx: false,
             is_fd: false,
