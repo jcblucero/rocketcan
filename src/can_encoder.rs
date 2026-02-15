@@ -108,7 +108,6 @@ impl<'a> CanFrameBuilder<'a> {
             .ok_or_else(|| anyhow!("unknown signal: {}", signal_name))?;
         let layout = SignalLayout::from_spec(spec);
         let raw = compute_raw_value(physical_value, spec);
-        println!("Raw value: {raw}");
         layout.pack(&mut self.frame.data, raw);
         Ok(self)
     }

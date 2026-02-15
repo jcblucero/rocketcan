@@ -3,6 +3,7 @@ use ::rocketcan::SignalSeries;
 //use ablf::BlfFile;
 use rocketcan::{CanFrame, can_decoder, can_encoder, canlog_reader, canlog_writer::{self, CandumpWriter}};
 use std::{fs::File, io::Write};
+use rand::Rng;
 use rocketcan::series_builder;
 fn main() {
     println!("Hello, world!");
@@ -108,6 +109,8 @@ fn gen_demo_file(output_path: &str) {
     let gearbox_msg = can_decoder::get_message_spec(&dbc, "GEARBOX_1").unwrap();
     let brake1_msg = can_decoder::get_message_spec(&dbc, "BRAKE_1").unwrap();
     let brake2_msg = can_decoder::get_message_spec(&dbc, "BRAKE_2").unwrap();
+    let wheels_rear_msg = can_decoder::get_message_spec(&dbc, "WHEEL_SPEEDS_REAR").unwrap();
+    let wheels_front_msg = can_decoder::get_message_spec(&dbc, "WHEEL_SPEEDS_FRONT").unwrap();
 
     let mut writer = CandumpWriter::from_path(output_path)
         .expect("failed to create output file");
@@ -134,6 +137,12 @@ fn gen_demo_file(output_path: &str) {
     let mut gearbox_ctr: u64 = 0;
     let mut brake1_ctr: u64 = 0;
     let mut brake2_ctr: u64 = 0;
+    let mut wheels_rear_ctr: u64 = 0;
+    let mut wheels_front_ctr: u64 = 0;
+
+    // Wheel speed sensor noise: fraction of current speed (0.05 = ±5%)
+    let wheel_noise_factor = 0.05_f64;
+    let mut rng = rand::rng();
 
     for i in 0..steps {
         let t = i as f64 * dt;
@@ -233,8 +242,34 @@ fn gen_demo_file(output_path: &str) {
             .build();
         writer.write(&frame).unwrap();
         brake2_ctr = (brake2_ctr + 1) % 16;
+
+        // --- WHEEL_SPEEDS_REAR (740) ---
+        let noise_rl = speed * wheel_noise_factor * rng.gen_range(-1.0..1.0_f64);
+        let noise_rr = speed * wheel_noise_factor * rng.gen_range(-1.0..1.0_f64);
+        let frame = can_encoder::CanFrameBuilder::new(&wheels_rear_msg)
+            .set("WHEEL_SPEED_RL", (speed + noise_rl).max(0.0)).unwrap()
+            .set("WHEEL_SPEED_RR", (speed + noise_rr).max(0.0)).unwrap()
+            .set("COUNTER", wheels_rear_ctr as f64).unwrap()
+            .timestamp(t)
+            .channel("vcan0".into())
+            .build();
+        writer.write(&frame).unwrap();
+        wheels_rear_ctr = (wheels_rear_ctr + 1) % 16;
+
+        // --- WHEEL_SPEEDS_FRONT (742) ---
+        let noise_fl = speed * wheel_noise_factor * rng.gen_range(-1.0..1.0_f64);
+        let noise_fr = speed * wheel_noise_factor * rng.gen_range(-1.0..1.0_f64);
+        let frame = can_encoder::CanFrameBuilder::new(&wheels_front_msg)
+            .set("WHEEL_SPEED_FL", (speed + noise_fl).max(0.0)).unwrap()
+            .set("WHEEL_SPEED_FR", (speed + noise_fr).max(0.0)).unwrap()
+            .set("COUNTER", wheels_front_ctr as f64).unwrap()
+            .timestamp(t)
+            .channel("vcan0".into())
+            .build();
+        writer.write(&frame).unwrap();
+        wheels_front_ctr = (wheels_front_ctr + 1) % 16;
     }
 
     writer.flush().unwrap();
-    println!("Wrote {} frames to {}", steps * 5, output_path);
+    println!("Wrote {} frames to {}", steps * 7, output_path);
 }
