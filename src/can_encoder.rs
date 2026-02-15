@@ -45,6 +45,19 @@ pub fn compute_raw_value(physical: f64, spec: &can_dbc::Signal) -> u64 {
     }
 }
 
+/// Return the CAN identifier
+/// DETAILED: CAN IDs are 11 bit (standard), or 29 bit (extended)
+/// Extended ID always have the ID Extended (IDE) bit==1 on the bus
+/// linux can.h pack it into the ID and some tools choose to display it as the 31st (MSbit).
+/// In DBC viewing / CAN bus viewing tools this bit is excluded as it is not part of the 29 bit ID
+/// Therefore this function returns just the ID
+pub fn get_can_id(message_spec: &can_dbc::Message) -> u32{
+    match message_spec.message_id() {
+                can_dbc::MessageId::Standard(id) => *id as u32,
+                can_dbc::MessageId::Extended(id) => *id,
+    }
+}
+
 /// Encode a full message from signal name/value pairs into a `CanFrame`.
 ///
 /// Looks up each signal by name in `message_spec`, computes the raw value,
@@ -58,10 +71,7 @@ pub fn encode_message(
 ) -> Result<CanFrame> {
     let mut frame = CanFrame::default();
     //frame.id = message_id;
-    frame.id = match message_spec.message_id() {
-                can_dbc::MessageId::Standard(id) => *id as u32,
-                can_dbc::MessageId::Extended(id) => *id,
-            };
+    frame.id = get_can_id(message_spec);
     frame.len = *message_spec.message_size() as u8;
 
     for (signal_name, physical_value) in signals {
@@ -85,9 +95,9 @@ pub struct CanFrameBuilder<'a> {
 }
 
 impl<'a> CanFrameBuilder<'a> {
-    pub fn new(message_spec: &'a can_dbc::Message, message_id: u32) -> Self {
+    pub fn new(message_spec: &'a can_dbc::Message) -> Self {
         let mut frame = CanFrame::default();
-        frame.id = message_id;
+        frame.id = get_can_id(message_spec);
         frame.len = *message_spec.message_size() as u8;
         Self { message_spec, frame }
     }
@@ -98,6 +108,7 @@ impl<'a> CanFrameBuilder<'a> {
             .ok_or_else(|| anyhow!("unknown signal: {}", signal_name))?;
         let layout = SignalLayout::from_spec(spec);
         let raw = compute_raw_value(physical_value, spec);
+        println!("Raw value: {raw}");
         layout.pack(&mut self.frame.data, raw);
         Ok(self)
     }
@@ -406,7 +417,7 @@ mod tests {
         )
         .unwrap();
 
-        let from_builder = CanFrameBuilder::new(msg, 0x1F0)
+        let from_builder = CanFrameBuilder::new(msg)
             .set("Temperature", 244.14)
             .unwrap()
             .set("AverageRadius", 1.8)
@@ -427,7 +438,7 @@ mod tests {
         let dbc = can_decoder::load_dbc("motohawk.dbc").unwrap();
         let msg = can_decoder::get_message_spec(&dbc, "ExampleMessage").unwrap();
 
-        let result = CanFrameBuilder::new(msg, 0x1F0).set("Bogus", 1.0);
+        let result = CanFrameBuilder::new(msg).set("Bogus", 1.0);
         assert!(result.is_err());
     }
 

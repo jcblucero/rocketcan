@@ -1,7 +1,7 @@
-use can_dbc::DBC;
+use can_dbc::{DBC, Message};
 use ::rocketcan::SignalSeries;
 //use ablf::BlfFile;
-use rocketcan::{can_decoder, can_encoder, canlog_reader, canlog_writer::{self, CandumpWriter}};
+use rocketcan::{CanFrame, can_decoder, can_encoder, canlog_reader, canlog_writer::{self, CandumpWriter}};
 use std::{fs::File, io::Write};
 use rocketcan::series_builder;
 fn main() {
@@ -95,44 +95,146 @@ fn main() {
 
     //let filename = "~/rust_projects/aphryx-canx-nissan-leaf/demo_meet_200k.log";
     //or line in
-    let out_file= "generated.log";
+    let out_file = "generated-demo-3.log";
     gen_demo_file(out_file);
 }
 
-fn gen_demo_file(path: &str) {
-    let end_time = 60;
-    let file = File::create(path).unwrap();
+fn gen_demo_file(output_path: &str) {
+    let dbc = can_decoder::load_dbc("can_samples/chrysler_cusw.dbc")
+        .expect("failed to load Chrysler DBC");
 
-    let mut candump_writer = CandumpWriter::from_writer(file);
-    
-    //Get period of message
-    let dbc_path = "can_samples/aphryx-canx-nissan-leaf/nissan_leaf_2018.dbc";
-    let dbc = rocketcan::can_decoder::load_dbc(dbc_path).unwrap();
-    /*
-    STEER_ANGLE_SENSOR(
-        STEER_ANGLE: -22.1,
-        STEER_ANGLE_RATE: 0,
-        SET_ME_X07: 7,
-        COUNTER: 2
-    )   
-     */
-    
-    let message_name = "STEER_ANGLE_SENSOR";
-    let msg_spec = can_decoder::get_message_spec(&dbc, message_name).unwrap();
-    let cycle_time = 0.01; //10ms in sec
-    let mut time = 0.0;
-    let mut frame = canlog_reader::CanFrame::default();
+    let steering_msg = can_decoder::get_message_spec(&dbc, "STEERING").unwrap();
+    let levers_msg = can_decoder::get_message_spec(&dbc, "STEERING_LEVERS").unwrap();
+    let gearbox_msg = can_decoder::get_message_spec(&dbc, "GEARBOX_1").unwrap();
+    let brake1_msg = can_decoder::get_message_spec(&dbc, "BRAKE_1").unwrap();
+    let brake2_msg = can_decoder::get_message_spec(&dbc, "BRAKE_2").unwrap();
 
-    while time <= 60.0 {
-        //Modifying frame
-        frame.timestamp = time;
-        //can_encoder::encode_message(msg_spec, signals)
+    let mut writer = CandumpWriter::from_path(output_path)
+        .expect("failed to create output file");
 
-        //Writing out
-        candump_writer.write(&frame).unwrap();
+    let dt = 0.01_f64;
+    let duration = 10.0_f64;
+    let steps = (duration / dt) as usize;
 
-        //Loop iteration step
-        time += cycle_time;
+    // Steering: sine wave -90..90 deg, 4-second period
+    let steer_period = 4.0_f64;
+    let steer_omega = 2.0 * std::f64::consts::PI / steer_period;
+    let steer_amplitude = 90.0_f64;
+
+    // Speed profile: ramp 0→18 m/s, coast, brake to 0
+    let ramp_end = 3.0_f64;
+    let coast_end = 7.0_f64;
+    let target_speed = 18.0_f64;
+    let brake_torque_val = 500.0_f64;
+
+    let mut prev_angle = 0.0_f64;
+
+    // Per-message 4-bit counters (0-15, rollover)
+    let mut steering_ctr: u64 = 0;
+    let mut gearbox_ctr: u64 = 0;
+    let mut brake1_ctr: u64 = 0;
+    let mut brake2_ctr: u64 = 0;
+
+    for i in 0..steps {
+        let t = i as f64 * dt;
+
+        // --- STEERING (494) ---
+        let steer_angle = steer_amplitude * (steer_omega * t).sin();
+        let steer_rate = (steer_angle - prev_angle) / dt;
+        prev_angle = steer_angle;
+
+        let frame = can_encoder::CanFrameBuilder::new(&steering_msg)
+            .set("STEER_ANGLE", steer_angle).unwrap()
+            .set("STEERING_RATE", steer_rate).unwrap()
+            .set("COUNTER", steering_ctr as f64).unwrap()
+            .timestamp(t)
+            .channel("vcan0".into())
+            .build();
+        writer.write(&frame).unwrap();
+        steering_ctr = (steering_ctr + 1) % 16;
+
+        // --- STEERING_LEVERS (1264): turn signals track steering direction ---
+        let turn_signal = if steer_angle < -5.0 {
+            1.0 // left blinker
+        } else if steer_angle > 5.0 {
+            2.0 // right blinker
+        } else {
+            0.0 // off
+        };
+        let frame = can_encoder::CanFrameBuilder::new(&levers_msg)
+            .set("TURN_SIGNALS", turn_signal).unwrap()
+            .timestamp(t)
+            .channel("vcan0".into())
+            .build();
+        writer.write(&frame).unwrap();
+
+        // --- GEARBOX_1 (500): always in Drive (4) ---
+        let frame = can_encoder::CanFrameBuilder::new(&gearbox_msg)
+            .set("DESIRED_GEAR", 4.0).unwrap()
+            .set("ACTUAL_GEAR", 4.0).unwrap()
+            .set("COUNTER", gearbox_ctr as f64).unwrap()
+            .timestamp(t)
+            .channel("vcan0".into())
+            .build();
+        writer.write(&frame).unwrap();
+        gearbox_ctr = (gearbox_ctr + 1) % 16;
+
+        // --- BRAKE_1 (484): vehicle speed + brake PSI ---
+        let speed = if t < ramp_end {
+            target_speed * t / ramp_end
+        } else if t < coast_end {
+            target_speed
+        } else {
+            (target_speed * (duration - t) / (duration - coast_end)).max(0.0)
+        };
+
+        // BRAKE_PSI: quick spike to 800 at brake onset, then bleed off
+        let psi_ramp_dur = 0.5;
+        let psi_bleed_dur = 1.0;
+        let brake_psi = if t < coast_end {
+            0.0
+        } else if t < coast_end + psi_ramp_dur {
+            800.0 * (t - coast_end) / psi_ramp_dur
+        } else if t < coast_end + psi_ramp_dur + psi_bleed_dur {
+            800.0 * (1.0 - (t - coast_end - psi_ramp_dur) / psi_bleed_dur)
+        } else {
+            0.0
+        };
+
+        let frame = can_encoder::CanFrameBuilder::new(&brake1_msg)
+            .set("VEHICLE_SPEED", speed).unwrap()
+            .set("BRAKE_PSI", brake_psi).unwrap()
+            .set("COUNTER", brake1_ctr as f64).unwrap()
+            .timestamp(t)
+            .channel("vcan0".into())
+            .build();
+        writer.write(&frame).unwrap();
+        brake1_ctr = (brake1_ctr + 1) % 16;
+
+        // --- BRAKE_2 (738): brake torque, lights, human ---
+        let torque_ramp_dur = 0.5;
+        let is_braking = t >= coast_end && speed > 0.0;
+        let brake_torque = if !is_braking {
+            0.0
+        } else if t < coast_end + torque_ramp_dur {
+            brake_torque_val * (t - coast_end) / torque_ramp_dur
+        } else {
+            brake_torque_val
+        };
+        let brake_lights = if brake_torque > 0.0 { 1.0 } else { 0.0 };
+        let brake_human = if brake_torque > 0.0 { 1.0 } else { 0.0 };
+        let frame = can_encoder::CanFrameBuilder::new(&brake2_msg)
+            .set("BRAKE_TORQUE", brake_torque).unwrap()
+            .set("BRAKE_LIGHTS", brake_lights).unwrap()
+            .set("BRAKE_HUMAN", brake_human).unwrap()
+            .set("COUNTER", brake2_ctr as f64).unwrap()
+            .timestamp(t)
+            .channel("vcan0".into())
+            .build();
+        writer.write(&frame).unwrap();
+        brake2_ctr = (brake2_ctr + 1) % 16;
     }
-    candump_writer.flush().unwrap();
+
+    writer.flush().unwrap();
+    println!("Wrote {} frames to {}", steps * 5, output_path);
 }

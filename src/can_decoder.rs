@@ -152,11 +152,11 @@ pub fn decode_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64
     compute_signal_value(result, signal_spec)
 }
 
-/// Compute the final value of a CAN signal using the formula
-/// final_value = decoded_signal_value * factor + offset
+/// Compute the final physical value of a CAN signal using the formula
+/// physical_value = decoded_signal_value * factor + offset
 fn compute_signal_value(decoded_value: u64, signal_spec: &can_dbc::Signal) -> f64 {
     //conversion from raw_signal to real value
-    let final_value = match signal_spec.value_type() {
+    let raw_value = match signal_spec.value_type() {
         //Sign extend if the value is signed
         can_dbc::ValueType::Signed => {
             let shift_len = 64 - signal_spec.signal_size;
@@ -167,7 +167,7 @@ fn compute_signal_value(decoded_value: u64, signal_spec: &can_dbc::Signal) -> f6
         }
         can_dbc::ValueType::Unsigned => decoded_value as f64,
     };
-    return final_value * signal_spec.factor() + signal_spec.offset();
+    return raw_value * signal_spec.factor() + signal_spec.offset();
 }
 
 /// Extract the signal value from data of a CanFrame, based on specification of signal_spec
