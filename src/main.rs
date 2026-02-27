@@ -141,7 +141,7 @@ fn gen_demo_file(output_path: &str) {
     let mut wheels_front_ctr: u64 = 0;
 
     // Wheel speed sensor noise: fraction of current speed (0.05 = ±5%)
-    let wheel_noise_factor = 0.05_f64;
+    let wheel_noise_factor = 0.03_f64;
     let mut rng = rand::rng();
 
     for i in 0..steps {
