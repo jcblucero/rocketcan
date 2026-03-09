@@ -4,10 +4,10 @@
  */
 
 use crate::canlog_reader::CanFrame;
-use can_dbc::DBC;
+use can_dbc::Dbc;
 use rand::prelude::*;
 use std::collections::HashMap;
-use std::fmt;
+use std::{fmt, fs};
 use std::fs::File;
 use std::hint::black_box;
 use std::io::{self, Read};
@@ -75,18 +75,18 @@ impl fmt::Display for DecodedCanMessage {
 
 /// Decode all the signal values from a given message
 pub fn decode_message(can_frame: &CanFrame, message_spec: &can_dbc::Message) -> DecodedCanMessage {
-    let mut values = Vec::with_capacity(message_spec.signals().len());
-    let mut names = Vec::with_capacity(message_spec.signals().len());
-    let mut units = Vec::with_capacity(message_spec.signals().len());
-    for signal_spec in message_spec.signals() {
-        names.push(signal_spec.name().clone());
+    let mut values = Vec::with_capacity(message_spec.signals.len());
+    let mut names = Vec::with_capacity(message_spec.signals.len());
+    let mut units = Vec::with_capacity(message_spec.signals.len());
+    for signal_spec in &message_spec.signals {
+        names.push(signal_spec.name.clone());
         values.push(decode_signal(&can_frame, &signal_spec));
-        units.push(signal_spec.unit().to_owned());
+        units.push(signal_spec.unit.to_owned());
     }
 
     return DecodedCanMessage {
         id: can_frame.id,
-        name: message_spec.message_name().clone(),
+        name: message_spec.name.clone(),
         signals: names,
         values: values,
         units: units,
@@ -105,13 +105,13 @@ pub fn decode_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64
         signal_spec.name(),
         signal_spec.unit()
     );*/
-    let v = signal_spec.value_type();
+    let v = signal_spec.value_type;
     let start_bit = signal_spec.start_bit;
     let mut byte_index = signal_spec.start_bit / 8;
     let mut bit_index = (signal_spec.start_bit % 8) as i32;
-    let mut len = signal_spec.signal_size;
+    let mut len = signal_spec.size;
     let mut result: u64 = 0;
-    if signal_spec.byte_order() == &can_dbc::ByteOrder::BigEndian {
+    if signal_spec.byte_order == can_dbc::ByteOrder::BigEndian {
         while len != 0 {
             //println!("byte index {byte_index}");
             while len != 0 && bit_index >= 0 {
@@ -135,7 +135,7 @@ pub fn decode_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64
                 len -= 1;
                 result = result >> 1;
                 let bit_val = ((can_frame.data[byte_index as usize] >> bit_index) & 0x01) as u64;
-                result |= bit_val << (signal_spec.signal_size - 1);
+                result |= bit_val << (signal_spec.size - 1);
                 //result |= bit_val << i;
                 //i += 1;
                 //println!("bit_index {bit_index}, bit_val {bit_val}, result {result}");
@@ -156,10 +156,10 @@ pub fn decode_signal(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64
 /// physical_value = decoded_signal_value * factor + offset
 fn compute_signal_value(decoded_value: u64, signal_spec: &can_dbc::Signal) -> f64 {
     //conversion from raw_signal to real value
-    let raw_value = match signal_spec.value_type() {
+    let raw_value = match signal_spec.value_type {
         //Sign extend if the value is signed
         can_dbc::ValueType::Signed => {
-            let shift_len = 64 - signal_spec.signal_size;
+            let shift_len = 64 - signal_spec.size;
             //Sign extend operation: shift left to place MSB into top of u64, shift right to get sign extension.
             let sign_extended = ((decoded_value as i64) << shift_len) >> shift_len;
             //println!("shift len {shift_len} sign_extended {sign_extended}");
@@ -167,17 +167,17 @@ fn compute_signal_value(decoded_value: u64, signal_spec: &can_dbc::Signal) -> f6
         }
         can_dbc::ValueType::Unsigned => decoded_value as f64,
     };
-    return raw_value * signal_spec.factor() + signal_spec.offset();
+    return raw_value * signal_spec.factor + signal_spec.offset;
 }
 
 /// Extract the signal value from data of a CanFrame, based on specification of signal_spec
 /// Read 1 byte at a time when decoding
 pub fn decode_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signal) -> f64 {
-    let v: &can_dbc::ValueType = signal_spec.value_type();
+    let v = &signal_spec.value_type;
     let start_bit = signal_spec.start_bit;
     let mut byte_index = signal_spec.start_bit / 8;
     let mut bit_index = (signal_spec.start_bit % 8) as i32;
-    let mut len = signal_spec.signal_size;
+    let mut len = signal_spec.size;
     let mut result: u64 = 0;
     let masks = [
         0b1,
@@ -190,7 +190,7 @@ pub fn decode_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signa
         0b1111_1111,
     ];
     //println!("{:?}", masks);
-    if signal_spec.byte_order() == &can_dbc::ByteOrder::BigEndian {
+    if signal_spec.byte_order == can_dbc::ByteOrder::BigEndian {
         while len > 0 {
             let bit_end = if (bit_index + 1 - len as i32) < 0 {
                 0
@@ -224,7 +224,7 @@ pub fn decode_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signa
             //result = result << incoming_bit_len;
             let byte_val = ((can_frame.data[byte_index as usize] >> bit_index)
                 & masks[mask_index as usize]) as u64;
-            result |= byte_val << (signal_spec.signal_size - len);
+            result |= byte_val << (signal_spec.size - len);
             //println!("incoming bit len {incoming_bit_len}, byte_val {byte_val}, len left {len}");
             len -= incoming_bit_len as u64;
             byte_index += 1;
@@ -235,31 +235,25 @@ pub fn decode_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signa
     compute_signal_value(result, signal_spec)
 }
 
-pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::DBC> {
-    let mut dbc_file = File::open(&dbc_path)?;
-    let mut buffer = Vec::new();
-    dbc_file.read_to_end(&mut buffer)?;
+pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::Dbc> {
 
-    /*match can_dbc::DBC::from_slice(&buffer) {
-        Ok(can_dbc) => Ok(can_dbc),
-        Err(e) => io::Error(e.kind()),
-    }*/
-    let maybe_dbc = can_dbc::DBC::from_slice(&buffer);
+    let data = fs::read_to_string(dbc_path).expect("Unable to read input file");
+    let maybe_dbc = can_dbc::Dbc::try_from(data.as_str());
     match maybe_dbc {
         Ok(dbc) => Ok(dbc),
         _ => Err(io::Error::new(io::ErrorKind::Other,"Error loading dbc")),
     }
 }
 
-/// Retreive specification of  the message as read from the CAN DBC
+/// Retreive specification of  the message as read from the CAN Dbc
 pub fn get_message_spec<'a>(
-    dbc: &'a can_dbc::DBC,
+    dbc: &'a can_dbc::Dbc,
     message_name: &str,
 ) -> Option<&'a can_dbc::Message> {
     let msg = dbc
-        .messages()
+        .messages
         .iter()
-        .find(|m| m.message_name() == message_name);
+        .find(|m| m.name == message_name);
     return msg;
 }
 
@@ -269,9 +263,9 @@ pub fn get_signal_spec<'a>(
     signal_name: &str,
 ) -> Option<&'a can_dbc::Signal> {
     let signal = message_spec
-        .signals()
+        .signals
         .iter()
-        .find(|s| s.name() == signal_name);
+        .find(|s| s.name == signal_name);
     return signal;
 }
 
@@ -387,8 +381,8 @@ mod tests {
         let dbc = load_dbc("motohawk.dbc").unwrap();
         let dbc = load_dbc("signed.dbc").unwrap();
         //let dbc = load_dbc("abs.dbc").unwrap();
-        for message in dbc.messages() {
-            for s in message.signals() {
+        for message in dbc.messages.iter() {
+            for s in message.signals.iter() {
                 println!("{:?}", s);
             }
             //println!("{:?}", message);
@@ -428,9 +422,9 @@ mod tests {
         assert_eq!(value2, s3big_expected);
         //s3 (little endian) = 0b011 -> 0b110
         let signal = msg
-            .signals()
+            .signals
             .iter()
-            .find(|s| s.name() == "s3")
+            .find(|s| s.name == "s3")
             .expect("could not find signal");
         let t1 = Instant::now();
         for i in 0..1000 {

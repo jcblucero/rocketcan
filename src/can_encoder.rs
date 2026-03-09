@@ -21,25 +21,25 @@ use crate::signal_layout::SignalLayout;
 /// For signed signals, the result is truncated to `signal_size` bits
 /// (two's complement representation stored as u64).
 pub fn compute_raw_value(physical: f64, spec: &can_dbc::Signal) -> u64 {
-    let raw_f64 = (physical - spec.offset()) / spec.factor();
+    let raw_f64 = (physical - spec.offset) / spec.factor;
 
-    match spec.value_type() {
+    match spec.value_type {
         can_dbc::ValueType::Signed => {
             let raw_i64 = raw_f64.round() as i64;
             // Mask to signal_size bits to get the unsigned two's complement representation
-            if spec.signal_size >= 64 {
+            if spec.size >= 64 {
                 raw_i64 as u64
             } else {
-                (raw_i64 as u64) & ((1u64 << spec.signal_size) - 1)
+                (raw_i64 as u64) & ((1u64 << spec.size) - 1)
             }
         }
         can_dbc::ValueType::Unsigned => {
             let raw_u64 = raw_f64.round() as u64;
             // Clamp to representable range
-            if spec.signal_size >= 64 {
+            if spec.size >= 64 {
                 raw_u64
             } else {
-                raw_u64 & ((1u64 << spec.signal_size) - 1)
+                raw_u64 & ((1u64 << spec.size) - 1)
             }
         }
     }
@@ -52,9 +52,9 @@ pub fn compute_raw_value(physical: f64, spec: &can_dbc::Signal) -> u64 {
 /// In DBC viewing / CAN bus viewing tools this bit is excluded as it is not part of the 29 bit ID
 /// Therefore this function returns just the ID
 pub fn get_can_id(message_spec: &can_dbc::Message) -> u32{
-    match message_spec.message_id() {
-                can_dbc::MessageId::Standard(id) => *id as u32,
-                can_dbc::MessageId::Extended(id) => *id,
+    match message_spec.id {
+                can_dbc::MessageId::Standard(id) => id as u32,
+                can_dbc::MessageId::Extended(id) => id,
     }
 }
 
@@ -72,7 +72,7 @@ pub fn encode_message(
     let mut frame = CanFrame::default();
     //frame.id = message_id;
     frame.id = get_can_id(message_spec);
-    frame.len = *message_spec.message_size() as u8;
+    frame.len = message_spec.size as u8;
 
     for (signal_name, physical_value) in signals {
         let spec = can_decoder::get_signal_spec(message_spec, signal_name)
@@ -98,7 +98,7 @@ impl<'a> CanFrameBuilder<'a> {
     pub fn new(message_spec: &'a can_dbc::Message) -> Self {
         let mut frame = CanFrame::default();
         frame.id = get_can_id(message_spec);
-        frame.len = *message_spec.message_size() as u8;
+        frame.len = message_spec.size as u8;
         Self { message_spec, frame }
     }
 
@@ -460,24 +460,24 @@ mod tests {
 
         // Decode all signals from the golden frame
         let mut signal_values: Vec<(&str, f64)> = Vec::new();
-        for signal in msg.signals() {
+        for signal in &msg.signals {
             let layout = SignalLayout::from_spec(signal);
             let value = layout.decode(&golden_frame, signal);
-            signal_values.push((signal.name(), value));
+            signal_values.push((signal.name.as_str(), value));
         }
 
         // Re-encode from the decoded physical values
         let encoded = encode_message(msg, &signal_values).unwrap();
 
         // Decode from the re-encoded frame and verify signal values match
-        for signal in msg.signals() {
+        for signal in msg.signals.iter() {
             let layout = SignalLayout::from_spec(signal);
             let golden_value = layout.decode(&golden_frame, signal);
             let encoded_value = layout.decode(&encoded, signal);
             assert!(
                 (golden_value - encoded_value).abs() < 1e-9,
                 "signal '{}': golden={}, re-encoded={}",
-                signal.name(), golden_value, encoded_value
+                signal.name, golden_value, encoded_value
             );
         }
     }
@@ -509,23 +509,23 @@ mod tests {
 
             // Decode all signals, then re-encode
             let mut signal_values: Vec<(&str, f64)> = Vec::new();
-            for signal in msg.signals() {
+            for signal in msg.signals.iter() {
                 let layout = SignalLayout::from_spec(signal);
                 let value = layout.decode(&golden_frame, signal);
-                signal_values.push((signal.name(), value));
+                signal_values.push((signal.name.as_str(), value));
             }
             
             let encoded = encode_message(msg, &signal_values).unwrap();
 
             // Verify each signal decodes to the same value from both frames
-            for signal in msg.signals() {
+            for signal in msg.signals.iter() {
                 let layout = SignalLayout::from_spec(signal);
                 let golden_value = layout.decode(&golden_frame, signal);
                 let encoded_value = layout.decode(&encoded, signal);
                 assert_eq!(
                     golden_value, encoded_value,
                     "signal {}.{}: golden={}, re-encoded={}",
-                    msg_name, signal.name(), golden_value, encoded_value
+                    msg_name, signal.name.as_str(), golden_value, encoded_value
                 );
             }
         }

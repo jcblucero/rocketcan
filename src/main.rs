@@ -1,4 +1,4 @@
-use can_dbc::{DBC, Message};
+use can_dbc::{Dbc, Message};
 use ::rocketcan::SignalSeries;
 //use ablf::BlfFile;
 use rocketcan::{CanFrame, can_decoder, can_encoder, canlog_reader, canlog_writer::{self, CandumpWriter}};
@@ -17,7 +17,10 @@ fn main() {
     //Use Case 1: Parse and plot a signal from canfile
     let desired_signal_name = "s7big";
     let desired_message_name = "Message378910";
-    let can_dbc = match rocketcan::can_decoder::load_dbc("signed.dbc") {
+    //ERROR DBC
+    let error_dbc = "/home/jlucero/Downloads/bmw_fr_updated.dbc";
+    let can_dbc = match rocketcan::can_decoder::load_dbc(error_dbc) {
+    //let can_dbc = match rocketcan::can_decoder::load_dbc("signed.dbc") {
         Ok(can_dbc) => can_dbc,
         Err(err) => {
             panic!("Error loading dbc: {err}");

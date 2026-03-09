@@ -44,9 +44,9 @@ impl SignalLayout {
         let mut segments = Vec::new();
         let mut byte_index = (spec.start_bit / 8) as usize;
         let mut bit_index = (spec.start_bit % 8) as u8;
-        let mut remaining = spec.signal_size;
+        let mut remaining = spec.size;
 
-        match spec.byte_order() {
+        match spec.byte_order {
             can_dbc::ByteOrder::BigEndian => {
                 // Big-endian (Motorola): start_bit is the MSB position.
                 // Walk downward within each byte, then move to next byte at bit 7.
@@ -88,7 +88,7 @@ impl SignalLayout {
 
         Self {
             segments,
-            signal_size: spec.signal_size,
+            signal_size: spec.size,
         }
     }
 
@@ -126,15 +126,15 @@ impl SignalLayout {
     /// then computes: physical = raw * factor + offset.
     pub fn decode(&self, frame: &CanFrame, spec: &can_dbc::Signal) -> f64 {
         let raw = self.extract(&frame.data);
-        let final_value = match spec.value_type() {
+        let final_value = match spec.value_type {
             can_dbc::ValueType::Signed => {
-                let shift_len = 64 - spec.signal_size;
+                let shift_len = 64 - spec.size;
                 let sign_extended = ((raw as i64) << shift_len) >> shift_len;
                 sign_extended as f64
             }
             can_dbc::ValueType::Unsigned => raw as f64,
         };
-        final_value * spec.factor() + spec.offset()
+        final_value * spec.factor + spec.offset
     }
 }
 
@@ -272,7 +272,7 @@ mod tests {
         frame: &CanFrame,
         msg: &can_dbc::Message,
     ) {
-        for signal in msg.signals() {
+        for signal in msg.signals.iter() {
             let layout = SignalLayout::from_spec(signal);
             let layout_value = layout.decode(frame, signal);
             let existing_value = can_decoder::decode_signal_by_bytes(frame, signal);
@@ -281,8 +281,8 @@ mod tests {
                 "mismatch at t={} id=0x{:X} message={} signal={}: layout={}, existing={}",
                 frame.timestamp,
                 frame.id,
-                msg.message_name(),
-                signal.name(),
+                msg.name,
+                signal.name,
                 layout_value,
                 existing_value,
             );
@@ -339,9 +339,9 @@ mod tests {
         let dbc = can_decoder::load_dbc(dbc_path).unwrap();
 
         let msg_by_id: HashMap<u32, &can_dbc::Message> = dbc
-            .messages()
+            .messages
             .iter()
-            .map(|m| (m.message_id().raw(), m))
+            .map(|m| (m.id.raw(), m))
             .collect();
 
         let parser = CanLogParser::from_file(Path::new(log_path)).unwrap();
@@ -474,7 +474,7 @@ mod tests {
         let dbc = can_decoder::load_dbc("motohawk.dbc").unwrap();
         let msg = can_decoder::get_message_spec(&dbc, "ExampleMessage").unwrap();
 
-        for signal in msg.signals() {
+        for signal in msg.signals.iter() {
             let layout = SignalLayout::from_spec(signal);
             let raw = layout.extract(&frame.data);
             let mut data = [0u8; 64];
@@ -483,7 +483,7 @@ mod tests {
             assert_eq!(
                 raw, raw2,
                 "extract-pack roundtrip failed for signal '{}': {} != {}",
-                signal.name(), raw, raw2
+                signal.name, raw, raw2
             );
         }
     }
@@ -511,7 +511,7 @@ mod tests {
                 Some(m) => m,
                 None => continue,
             };
-            for signal in msg.signals() {
+            for signal in msg.signals.iter() {
                 let layout = SignalLayout::from_spec(signal);
                 let raw = layout.extract(&frame.data);
                 let mut data = [0u8; 64];
@@ -520,7 +520,7 @@ mod tests {
                 assert_eq!(
                     raw, raw2,
                     "extract-pack roundtrip failed for {}.{}: {} != {}",
-                    message_name, signal.name(), raw, raw2
+                    message_name, signal.name, raw, raw2
                 );
             }
         }
@@ -616,9 +616,9 @@ mod tests {
         ).unwrap();
 
         let msg_by_id: HashMap<u32, &can_dbc::Message> = dbc
-            .messages()
+            .messages
             .iter()
-            .map(|m| (m.message_id().raw(), m))
+            .map(|m| (m.id.raw(), m))
             .collect();
 
         let parser = CanLogParser::from_file(Path::new(
@@ -631,7 +631,7 @@ mod tests {
                 Some(m) => m,
                 None => continue,
             };
-            for signal in msg.signals() {
+            for signal in msg.signals.iter() {
                 let layout = SignalLayout::from_spec(signal);
                 let raw = layout.extract(&frame.data);
                 let mut data = [0u8; 64];
@@ -641,7 +641,7 @@ mod tests {
                     raw, raw2,
                     "extract-pack roundtrip failed at t={} id=0x{:X} {}.{}: {} != {}",
                     frame.timestamp, frame.id,
-                    msg.message_name(), signal.name(), raw, raw2
+                    msg.name, signal.name, raw, raw2
                 );
                 signals_checked += 1;
             }
