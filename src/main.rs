@@ -19,8 +19,8 @@ fn main() {
     let desired_message_name = "Message378910";
     //ERROR DBC
     let error_dbc = "/home/jlucero/Downloads/bmw_fr_updated.dbc";
-    let can_dbc = match rocketcan::can_decoder::load_dbc(error_dbc) {
-    //let can_dbc = match rocketcan::can_decoder::load_dbc("signed.dbc") {
+    //let can_dbc = match rocketcan::can_decoder::load_dbc(error_dbc) {
+    let can_dbc = match rocketcan::can_decoder::load_dbc("signed.dbc") {
         Ok(can_dbc) => can_dbc,
         Err(err) => {
             panic!("Error loading dbc: {err}");

@@ -235,14 +235,38 @@ pub fn decode_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signa
     compute_signal_value(result, signal_spec)
 }
 
+/// Strip lines in dbc that are comments, they start with CM_
+///     This is a workaround to a bug in can-dbc crate / can-dbc-pest
+///     which fail on dbc comments with messages. See here for dbc spec
+///     https://github.com/stefanhoelzl/CANpy/blob/master/docs/DBC_Specification.md#cm_
+///     TODO: Open bug on can-dbc-pest
+pub fn strip_dbc_comments(data: String) -> String {
+    let stripped: String = data
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("CM_"))
+            .collect::<Vec<_>>()
+            .join("\n");
+    return stripped;
+}
+
 pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::Dbc> {
 
     let data = fs::read_to_string(dbc_path).expect("Unable to read input file");
     let maybe_dbc = can_dbc::Dbc::try_from(data.as_str());
-    match maybe_dbc {
+    
+    /*match maybe_dbc {
         Ok(dbc) => Ok(dbc),
         _ => Err(io::Error::new(io::ErrorKind::Other,"Error loading dbc")),
+    }*/
+    if let Ok(dbc) = maybe_dbc {
+        return Ok(dbc);
     }
+
+    // Retry again without DBC comments
+    let stripped_dbc = strip_dbc_comments(data);
+    can_dbc::Dbc::try_from(stripped_dbc.as_str())
+        .map_err(|_| io::Error::new(io::ErrorKind::Other, "Error loading dbc"))
+    
 }
 
 /// Retreive specification of  the message as read from the CAN Dbc
