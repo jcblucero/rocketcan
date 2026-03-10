@@ -240,7 +240,7 @@ pub fn decode_signal_by_bytes(can_frame: &CanFrame, signal_spec: &can_dbc::Signa
 ///     which fail on dbc comments with messages. See here for dbc spec
 ///     https://github.com/stefanhoelzl/CANpy/blob/master/docs/DBC_Specification.md#cm_
 ///     TODO: Open bug on can-dbc-pest
-pub fn strip_dbc_comments(data: String) -> String {
+pub fn strip_dbc_comments(data: &str) -> String {
     let stripped: String = data
             .lines()
             .filter(|line| !line.trim_start().starts_with("CM_"))
@@ -249,15 +249,16 @@ pub fn strip_dbc_comments(data: String) -> String {
     return stripped;
 }
 
+/// Load a dbc from the file path
 pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::Dbc> {
-
     let data = fs::read_to_string(dbc_path).expect("Unable to read input file");
-    let maybe_dbc = can_dbc::Dbc::try_from(data.as_str());
-    
-    /*match maybe_dbc {
-        Ok(dbc) => Ok(dbc),
-        _ => Err(io::Error::new(io::ErrorKind::Other,"Error loading dbc")),
-    }*/
+    return dbc_from_str(data.as_str());
+}
+
+/// Create a dbc from a str of the dbc contents
+pub fn dbc_from_str(data: &str) -> io::Result<can_dbc::Dbc> {
+    let maybe_dbc = can_dbc::Dbc::try_from(data);
+
     if let Ok(dbc) = maybe_dbc {
         return Ok(dbc);
     }
@@ -266,7 +267,15 @@ pub fn load_dbc(dbc_path: &str) -> io::Result<can_dbc::Dbc> {
     let stripped_dbc = strip_dbc_comments(data);
     can_dbc::Dbc::try_from(stripped_dbc.as_str())
         .map_err(|_| io::Error::new(io::ErrorKind::Other, "Error loading dbc"))
-    
+}
+
+/// Create a dbc from a slice of utf8 bytes
+pub fn dbc_from_slice(slice: &[u8]) -> io::Result<can_dbc::Dbc> {
+    let data = str::from_utf8(slice).or_else(|e| {
+            let io_error = io::Error::new(io::ErrorKind::InvalidData,format!("Invalid UTF-8 sequence: {}", e));
+            Err(io_error)
+        })?;
+    return dbc_from_str(data);
 }
 
 /// Retreive specification of  the message as read from the CAN Dbc
