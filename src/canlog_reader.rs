@@ -8,7 +8,7 @@ use std::num::ParseIntError;
 use std::time::Instant;
 
 const DEFAULT_FRAME_PAYLOAD_LEN: usize = 64;
-#[derive(Debug,PartialEq, PartialOrd)]
+#[derive(Debug,PartialEq, PartialOrd,Clone)]
 pub struct CanFrame {
     // Timestamp: Time the data was received (seconds)
     pub timestamp: f64,
