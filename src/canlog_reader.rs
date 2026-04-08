@@ -323,8 +323,8 @@ impl CanLogParser {
             ascii_base = Some(base);
             format = CanLogFormat::VectorAscii;
         } else {
-            //TODO return error
-            println!("Error calling CanLogParser::from_bytes");
+            //TODO: decide if CanLogParser needs to have separate classes for Vector Ascii
+            //println!("Error calling CanLogParser::from_bytes");
             //return Err(io::Error::new(io::ErrorKind::InvalidInput,"Invalid ascii header"));
         }
         CanLogParser { 
