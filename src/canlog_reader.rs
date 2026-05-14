@@ -66,21 +66,22 @@ impl CanFrame {
 */
 
 /// Turn hex data from candump log into byte values
-pub fn candump_hex_to_bytes(hex_str: &str) -> Result<[u8; DEFAULT_FRAME_PAYLOAD_LEN],ParseIntError> {
-//pub fn candump_hex_to_bytes(hex_str: &str) -> Result<Vec<u8>,ParseIntError> {
-    let mut data_bytes = [0; DEFAULT_FRAME_PAYLOAD_LEN];
-    //let mut data_bytes = Vec::new();
-
-    let mut index = 0;
-    let mut i = 0;
-    while i < hex_str.len() {
-        //data_bytes.push(u8::from_str_radix(&hex_str[i..i + 2], 16)?);
-        data_bytes[index] = u8::from_str_radix(&hex_str[i..i + 2], 16)?;
-            //.expect(&format!("failed to parse data bytes {}", hex_str));
-        index += 1;
-        i += 2;
+pub fn candump_hex_to_bytes(
+    hex_str: &str,
+) -> anyhow::Result<[u8; DEFAULT_FRAME_PAYLOAD_LEN]> {
+    if hex_str.len() % 2 != 0 {
+        return Err(anyhow::anyhow!("Incomplete candump frame in {hex_str}"));
     }
-    return Ok(data_bytes);
+    if hex_str.len() / 2 > DEFAULT_FRAME_PAYLOAD_LEN {
+        return Err(anyhow::anyhow!(
+            "hex payload exceeds {DEFAULT_FRAME_PAYLOAD_LEN} bytes: {hex_str}"
+        ));
+    }
+    let mut data_bytes = [0; DEFAULT_FRAME_PAYLOAD_LEN];
+    for (i, chunk) in hex_str.as_bytes().chunks_exact(2).enumerate() {
+        data_bytes[i] = u8::from_str_radix(std::str::from_utf8(chunk)?, 16)?;
+    }
+    Ok(data_bytes)
 }
 
 /// Parse a line in candump format
@@ -354,17 +355,22 @@ impl Iterator for CanLogParser {
     type Item = CanFrame;
 
     fn next(&mut self) -> Option<Self::Item>{
-        self.buf.clear();
         match self.format {
             CanLogFormat::Candump => {
-                match self.reader.read_line(&mut self.buf) {
-                    Ok(0) => None,
-                    Ok(_) => {
-                        //TODO: Should this cause an error? 
-                        //Consider returning Option<Result<CanFrame>> to indicate parse failure on line to user
-                        parse_candump_line(&self.buf).ok() //throw away parsing failures here...
+                loop {
+                    self.buf.clear();
+                    match self.reader.read_line(&mut self.buf) {
+                        Ok(0) => return None,
+                        Ok(_) => {
+                            //TODO: Should this cause an error?
+                            //Consider returning Option<Result<CanFrame>> to indicate parse failure on line to user
+                            if let Ok(frame) = parse_candump_line(&self.buf) {
+                                return Some(frame);
+                            }
+                            //parse failed, throw away error and continue loop
+                        }
+                        Err(_) => return None,
                     }
-                    Err(_) => None,
                 }
             },
             CanLogFormat::VectorAscii => {
@@ -618,6 +624,25 @@ mod tests {
         fill_bytes_repeating(&mut expected_frame.data[0..64],8,17,17);
         assert_eq!(expected_frame, parse_candump_line(fd_64bytes_line).unwrap());
     }
+    //---- Malformed can-utils logs -------//
+
+    /// Frame length is longer than the number of bytes
+    #[test]
+    fn test_incomplete_frame() {
+        let input = "(1778537768.565352) can0 2BC#414".as_bytes().to_vec();
+        let mut can_parser = CanLogParser::from_bytes(input);
+        assert_eq!(None,can_parser.next());
+    }
+
+    /// TODO: update this test if we switch to returning results instead of silently swallowing errors
+    #[test]
+    fn it_continues_on_malformed_lines() {
+        let input = "(1778537768.565352) can0 233#412\n(1778537768.565352) can0 111#41\n \n(1778537768.565352) can0 111#41".as_bytes().to_vec();
+        let mut can_parser = CanLogParser::from_bytes(input);
+        let vec: Vec<_> = can_parser.collect();
+        assert_eq!(2,vec.len());
+    }
+
 
     //--------Vector ascii format tests-------------
     #[test]
