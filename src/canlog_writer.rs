@@ -72,9 +72,18 @@ impl<W: io::Write> CandumpWriter<W> {
     }
 }
 
+impl<W: io::Write> CandumpWriter<W> {
+    /// Flush and return the inner writer. Used on WASM to extract the
+    /// in-memory buffer when finalizing a recording.
+    pub fn into_inner(mut self) -> io::Result<W> {
+        self.writer.flush()?;
+        self.writer.into_inner().map_err(|e| e.into_error())
+    }
+}
+
 impl CandumpWriter<File> {
     /// Create a new writer to a file.
-    /// Creates a new file if one does not exist, 
+    /// Creates a new file if one does not exist,
     /// erases existing file contents if it does exist
     pub fn from_path<P: AsRef<Path>> (path: P) -> io::Result<Self>{
         let file = File::create(path)?;
@@ -165,5 +174,19 @@ mod tests {
     }
     //test_vector_ascii_write
 
+    #[test]
+    fn test_into_inner_returns_bytes() {
+        let line = "(1436509053.850870) vcan0 1A0#9C20407F96EA167B";
+        let frame = canlog_reader::parse_candump_line(line).unwrap();
 
+        let mut writer: CandumpWriter<Vec<u8>> = CandumpWriter::from_writer(Vec::new());
+        writer.write(&frame).unwrap();
+
+        let bytes = writer.into_inner().unwrap();
+        let text = std::str::from_utf8(&bytes).unwrap();
+        assert!(
+            text.contains("1A0#9C20407F96EA167B"),
+            "into_inner did not return expected frame bytes:\n{text}"
+        );
+    }
 }

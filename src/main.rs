@@ -20,7 +20,7 @@ fn main() {
     //ERROR DBC
     let error_dbc = "/home/jlucero/Downloads/bmw_fr_updated.dbc";
     //let can_dbc = match rocketcan::can_decoder::load_dbc(error_dbc) {
-    let can_dbc = match rocketcan::can_decoder::load_dbc("signed.dbc") {
+    //let can_dbc = match rocketcan::can_decoder::load_dbc("signed.dbc") {
         Ok(can_dbc) => can_dbc,
         Err(err) => {
             panic!("Error loading dbc: {err}");
@@ -60,11 +60,11 @@ fn main() {
 
     /// Re-write timestamps
     let log = canlog_reader::CanLogReader::from_file(
-        "/home/jlucero/projects/rocketcan/can_samples/aphryx-canx-nissan-leaf/demo_meet_200k.log",
+        "./can_samples/aphryx-canx-nissan-leaf/demo_meet_200k.log",
     );
     //let writer = canlog_reader::CanLogWriter("")
     let output_path =
-        "/home/jlucero/projects/rocketcan/can_samples/aphryx-canx-nissan-leaf/demo_meet_200k_revised.log";
+        "./can_samples/aphryx-canx-nissan-leaf/demo_meet_200k_revised.log";
     let mut output_file = std::fs::File::create(output_path).unwrap();
 
     let mut time = 0.;
